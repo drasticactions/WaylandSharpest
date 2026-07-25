@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Wayland</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+    <NoWarn>$(NoWarn);CS8981</NoWarn>
+    <Description>Yet another .NET binding for libwayland.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../WaylandSharpest.Generator/WaylandSharpest.Generator.csproj"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="Analyzer" />
+    <AdditionalFiles Include="$(RepoRoot)external/wayland/protocol/wayland.xml"
+                     WaylandNamespace="Wayland" />
+  </ItemGroup>
+
+  <ItemGroup Label="Packaging">
+    <None Include="../WaylandSharpest.Generator/bin/$(Configuration)/netstandard2.0/WaylandSharpest.Generator.dll"
+          Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="build/WaylandSharpest.props" Pack="true" PackagePath="build/WaylandSharpest.props" />
+    <None Include="build/WaylandSharpest.targets" Pack="true" PackagePath="build/WaylandSharpest.targets" />
+    <None Include="build/WaylandSharpest.props" Pack="true" PackagePath="buildTransitive/WaylandSharpest.props" />
+    <None Include="build/WaylandSharpest.targets" Pack="true" PackagePath="buildTransitive/WaylandSharpest.targets" />
+  </ItemGroup>
+
+</Project>

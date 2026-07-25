@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/WaylandSharpest/WaylandSharpest.csproj" />
+    <ProjectReference Include="../../src/WaylandSharpest.Generator/WaylandSharpest.Generator.csproj"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="Analyzer" />
+    <AdditionalFiles Include="$(RepoRoot)external/wayland-protocols/stable/xdg-shell/xdg-shell.xml" />
+  </ItemGroup>
+
+</Project>

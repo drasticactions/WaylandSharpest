@@ -1,0 +1,11 @@
+<Project>
+
+  <PropertyGroup>
+    <EnableDefaultWaylandProtocolItems Condition="'$(EnableDefaultWaylandProtocolItems)' == ''">true</EnableDefaultWaylandProtocolItems>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(EnableDefaultWaylandProtocolItems)' == 'true'">
+    <WaylandProtocol Include="$(MSBuildProjectDirectory)/wayland-protocols/**/*.xml" />
+  </ItemGroup>
+
+</Project>

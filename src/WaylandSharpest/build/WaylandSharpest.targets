@@ -1,0 +1,8 @@
+<Project>
+
+  <ItemGroup>
+    <AdditionalFiles Include="@(WaylandProtocol)" />
+    <CompilerVisibleItemMetadata Include="AdditionalFiles" MetadataName="WaylandNamespace" />
+  </ItemGroup>
+
+</Project>

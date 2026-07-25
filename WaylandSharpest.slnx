@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/ShmWindow/ShmWindow.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/WaylandSharpest.Generator/WaylandSharpest.Generator.csproj" />
+    <Project Path="src/WaylandSharpest/WaylandSharpest.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/WaylandSharpest.Generator.Tests/WaylandSharpest.Generator.Tests.csproj" />
+    <Project Path="tests/WaylandSharpest.Tests/WaylandSharpest.Tests.csproj" />
+  </Folder>
+</Solution>
