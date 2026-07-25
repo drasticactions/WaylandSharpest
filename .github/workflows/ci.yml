@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build, test, and smoke-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with wayland submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Install libwayland and weston
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwayland-client0 libwayland-server0 weston
+
+      - name: Build
+        run: dotnet build -c Release
+
+      - name: Test
+        run: dotnet test -c Release --no-build
+
+      - name: Sample smoke test (headless weston)
+        run: |
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP/xdg"
+          mkdir -p "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_RUNTIME_DIR"
+
+          weston --backend=headless --socket=ci-smoke --idle-time=0 > weston.log 2>&1 &
+          weston_pid=$!
+          sleep 2
+
+          # The sample runs until its window is closed; nothing closes it
+          # headlessly, so a timeout kill (124) after mapping is the pass case.
+          set +e
+          WAYLAND_DISPLAY=ci-smoke timeout 8 \
+            dotnet samples/ShmWindow/bin/Release/net10.0/ShmWindow.dll > sample.log 2>&1
+          status=$?
+          set -e
+
+          kill "$weston_pid" 2>/dev/null || true
+          echo "--- sample output ---"
+          cat sample.log
+
+          if [ "$status" -ne 124 ]; then
+            echo "Sample exited with status $status before the timeout; expected it to stay mapped."
+            echo "--- weston log ---"
+            cat weston.log
+            exit 1
+          fi
+          grep -q "Window mapped" sample.log
+
+      - name: Pack
+        run: dotnet pack src/WaylandSharpest/WaylandSharpest.csproj -c Release --no-build -o artifacts
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkg
+          path: |
+            artifacts/*.nupkg
+            artifacts/*.snupkg
+          if-no-files-found: error
