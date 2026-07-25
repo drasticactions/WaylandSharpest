@@ -19,6 +19,8 @@ internal static class NativeLibraryResolver
         {
             "wayland-client" => new[] { "libwayland-client.so.0", "libwayland-client.so" },
             "wayland-server" => new[] { "libwayland-server.so.0", "libwayland-server.so" },
+            "wayland-egl" => new[] { "libwayland-egl.so.1", "libwayland-egl.so" },
+            "wayland-cursor" => new[] { "libwayland-cursor.so.0", "libwayland-cursor.so" },
             _ => null,
         };
 

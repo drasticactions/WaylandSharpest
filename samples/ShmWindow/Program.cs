@@ -2,6 +2,7 @@ using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 using Wayland;
+using Wayland.Cursor;
 
 namespace ShmWindow;
 
@@ -24,6 +25,7 @@ internal static class Program
         WlCompositor? compositor = null;
         WlShm? shm = null;
         XdgWmBase? wmBase = null;
+        WlSeat? seat = null;
 
         registry.Global += (_, e) =>
         {
@@ -38,6 +40,9 @@ internal static class Program
                 case "xdg_wm_base":
                     wmBase = registry.Bind<XdgWmBase>(e.Name, 1);
                     break;
+                case "wl_seat":
+                    seat = registry.Bind<WlSeat>(e.Name, Math.Min(e.Version, 5));
+                    break;
             }
         };
         display.Roundtrip();
@@ -46,6 +51,41 @@ internal static class Program
         {
             Console.Error.WriteLine("Compositor is missing wl_compositor, wl_shm, or xdg_wm_base.");
             return 1;
+        }
+
+        // Show a themed cursor while the pointer is over the window. The theme
+        // owns the cursor buffers, so a plain Attach of the borrowed buffer is
+        // all it takes.
+        WlPointer? pointer = null;
+        WlSurface? cursorSurface = null;
+        WlCursorTheme? cursorTheme = null;
+
+        if (seat is not null)
+        {
+            seat.Capabilities += (_, e) =>
+            {
+                if (pointer is not null || !e.Capabilities.HasFlag(WlSeat.Capability.Pointer))
+                {
+                    return;
+                }
+
+                pointer = seat.GetPointer();
+                pointer.Enter += (_, enter) =>
+                {
+                    cursorTheme ??= WlCursorTheme.Load(null, 24, shm);
+                    var cursor = cursorTheme.GetCursor("default") ?? cursorTheme.GetCursor("left_ptr");
+                    if (cursor is null)
+                    {
+                        return;
+                    }
+
+                    var image = cursor.Images[0];
+                    cursorSurface ??= compositor.CreateSurface();
+                    pointer.SetCursor(enter.Serial, cursorSurface, (int)image.HotspotX, (int)image.HotspotY);
+                    cursorSurface.Attach(image.GetBuffer(), 0, 0);
+                    cursorSurface.Commit();
+                };
+            };
         }
 
         wmBase.Ping += (_, e) => wmBase.Pong(e.Serial);
@@ -81,6 +121,11 @@ internal static class Program
         {
             display.Dispatch();
         }
+
+        cursorTheme?.Dispose();
+        cursorSurface?.Dispose();
+        pointer?.Dispose();
+        seat?.Dispose();
 
         return 0;
     }

@@ -17,6 +17,7 @@ public abstract unsafe class WlProxy : IDisposable
     private nint _handle;
     private GCHandle _selfHandle;
     private bool _destroyed;
+    private bool _borrowed;
 
     protected WlProxy(nint handle, WlDisplay? display)
     {
@@ -51,6 +52,13 @@ public abstract unsafe class WlProxy : IDisposable
     /// <summary>True once the object has been destroyed (via a destructor request or <see cref="Dispose"/>).</summary>
     public bool IsDestroyed => _destroyed;
 
+    /// <summary>
+    /// True when the native proxy is owned by native code (e.g. a buffer owned
+    /// by a wayland-cursor theme). <see cref="Dispose"/> is a no-op on borrowed
+    /// objects; the native owner invalidates them when it goes away.
+    /// </summary>
+    public bool IsBorrowed => _borrowed;
+
     /// <summary>Interface metadata; implemented by generated classes.</summary>
     protected abstract WlInterfaceSpec Spec { get; }
 
@@ -63,7 +71,7 @@ public abstract unsafe class WlProxy : IDisposable
     /// </summary>
     public void Dispose()
     {
-        if (_destroyed)
+        if (_destroyed || _borrowed)
         {
             return;
         }
@@ -157,6 +165,21 @@ public abstract unsafe class WlProxy : IDisposable
         proxy.AttachDispatcher();
         return proxy;
     }
+
+    /// <summary>
+    /// Wraps a native proxy whose lifetime belongs to native code. The wrapper
+    /// behaves normally (requests, events) but never destroys the proxy; the
+    /// owner must call <see cref="ReleaseBorrowed"/> before destroying it.
+    /// </summary>
+    internal static WlProxy CreateBorrowed(WlInterfaceSpec iface, nint handle, WlDisplay display)
+    {
+        var proxy = CreateWrapped(iface, handle, display);
+        proxy._borrowed = true;
+        return proxy;
+    }
+
+    /// <summary>Invalidates a borrowed wrapper just before its native owner destroys the proxy.</summary>
+    internal void ReleaseBorrowed() => MarkDestroyed();
 
     private void AttachDispatcher()
     {

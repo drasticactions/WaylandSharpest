@@ -85,4 +85,23 @@ echo "== libwayland-server =="
     "${SERVER_EXCLUDES[@]}" \
     -o "$OUT_DIR"
 
+# libwayland-egl and libwayland-cursor only reference core protocol objects
+# (wl_surface, wl_shm, wl_buffer) through opaque pointers, so their runs stay
+# independent of the client/server output.
+echo "== libwayland-egl =="
+"$GEN" "${COMMON_ARGS[@]}" \
+    -f "$REPO_ROOT/external/wayland/egl/wayland-egl-core.h" \
+    -t "$REPO_ROOT/external/wayland/egl/wayland-egl-core.h" \
+    -l wayland-egl \
+    -m LibWaylandEgl \
+    -o "$OUT_DIR"
+
+echo "== libwayland-cursor =="
+"$GEN" "${COMMON_ARGS[@]}" \
+    -f "$REPO_ROOT/external/wayland/cursor/wayland-cursor.h" \
+    -t "$REPO_ROOT/external/wayland/cursor/wayland-cursor.h" \
+    -l wayland-cursor \
+    -m LibWaylandCursor \
+    -o "$OUT_DIR"
+
 echo "Done. Output in $OUT_DIR"
