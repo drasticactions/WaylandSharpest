@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Wayland.Native;
@@ -14,6 +15,8 @@ public abstract unsafe class WlProxy : IDisposable
 {
     internal const uint MarshalFlagDestroy = 1; // WL_MARSHAL_FLAG_DESTROY
 
+    private static readonly ConcurrentDictionary<nint, WlProxy> Owned = new();
+
     private nint _handle;
     private GCHandle _selfHandle;
     private bool _destroyed;
@@ -28,6 +31,7 @@ public abstract unsafe class WlProxy : IDisposable
 
         _handle = handle;
         Display = display ?? (WlDisplay)this;
+        Owned[_handle] = this;
     }
 
     /// <summary>The connection this object belongs to.</summary>
@@ -91,6 +95,7 @@ public abstract unsafe class WlProxy : IDisposable
     protected void MarkDestroyed()
     {
         _destroyed = true;
+        Owned.TryRemove(_handle, out _);
         _handle = 0;
         if (_selfHandle.IsAllocated)
         {
@@ -216,7 +221,11 @@ public abstract unsafe class WlProxy : IDisposable
 
     // ---- Event argument decoding (called by generated code) ----
 
-    /// <summary>Decodes an object argument via its proxy's user data.</summary>
+    /// <summary>
+    /// Decodes an object argument. Returns <c>null</c> for proxies this library
+    /// did not create rather than reinterpreting their user data. Use
+    /// <see cref="GetProxyHandle"/> to reach those.
+    /// </summary>
     protected static T? GetProxy<T>(WlArg arg) where T : WlProxy
     {
         if (arg.Ptr == 0)
@@ -224,14 +233,15 @@ public abstract unsafe class WlProxy : IDisposable
             return null;
         }
 
-        var userData = (nint)LibWaylandClient.wl_proxy_get_user_data((wl_proxy*)arg.Ptr);
-        if (userData == 0)
-        {
-            return null;
-        }
-
-        return GCHandle.FromIntPtr(userData).Target as T;
+        return Owned.TryGetValue(arg.Ptr, out var proxy) ? proxy as T : null;
     }
+
+    /// <summary>
+    /// The raw <c>wl_proxy*</c> of an object argument, regardless of owner. Use
+    /// to bridge to a native library that owns the proxy. Returns 0 for a null
+    /// argument.
+    /// </summary>
+    protected static nint GetProxyHandle(WlArg arg) => arg.Ptr;
 
     /// <summary>Wraps the server-created proxy of a <c>new_id</c> event argument.</summary>
     protected WlProxy WrapNewProxy(WlArg arg, WlInterfaceSpec iface) =>

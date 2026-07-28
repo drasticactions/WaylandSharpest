@@ -101,16 +101,19 @@ namespace WaylandProtocols
         /// <summary>Arguments of the 'state' event.</summary>
         public readonly struct StateEventArgs
         {
-            internal StateEventArgs(uint serial, global::Wayland.WlFixed position, global::WaylandProtocols.SampleChild? child)
+            internal StateEventArgs(uint serial, global::Wayland.WlFixed position, global::WaylandProtocols.SampleChild? child, nint childHandle)
             {
                 Serial = serial;
                 Position = position;
                 Child = child;
+                ChildHandle = childHandle;
             }
 
             public uint Serial { get; }
             public global::Wayland.WlFixed Position { get; }
             public global::WaylandProtocols.SampleChild? Child { get; }
+            /// <summary>Raw wl_proxy pointer of 'child'; valid even when the proxy is owned by another library.</summary>
+            public nint ChildHandle { get; }
         }
 
         /// <summary>Raised for the 'state' event.</summary>
@@ -135,7 +138,7 @@ namespace WaylandProtocols
             switch (opcode)
             {
                 case 0u:
-                    State?.Invoke(this, new StateEventArgs(args[0].U, args[1].F, GetProxy<global::WaylandProtocols.SampleChild>(args[2])));
+                    State?.Invoke(this, new StateEventArgs(args[0].U, args[1].F, GetProxy<global::WaylandProtocols.SampleChild>(args[2]), GetProxyHandle(args[2])));
                     break;
                 case 1u:
                     Spawned?.Invoke(this, new SpawnedEventArgs((global::WaylandProtocols.SampleChild)WrapNewProxy(args[0], global::WaylandProtocols.SampleChild.Interface)));

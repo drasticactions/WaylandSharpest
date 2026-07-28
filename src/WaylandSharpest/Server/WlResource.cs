@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Wayland.Native;
@@ -13,6 +14,14 @@ namespace Wayland.Server;
 /// </summary>
 public abstract unsafe class WlResource
 {
+    /// <summary>
+    /// Resources created by this library, keyed by native pointer. Argument
+    /// decoding resolves through this rather than through
+    /// <c>wl_resource_get_user_data</c>, whose value may belong to another
+    /// library sharing the display (e.g. wlroots).
+    /// </summary>
+    private static readonly ConcurrentDictionary<nint, WlResource> Owned = new();
+
     private nint _handle;
     private GCHandle _selfHandle;
     private bool _destroyed;
@@ -30,6 +39,7 @@ public abstract unsafe class WlResource
 
         _handle = (nint)resource;
         _selfHandle = GCHandle.Alloc(this);
+        Owned[_handle] = this;
         var self = (void*)GCHandle.ToIntPtr(_selfHandle);
         LibWaylandServer.wl_resource_set_dispatcher(resource, &DispatchThunk, self, self, &DestroyThunk);
     }
@@ -128,6 +138,7 @@ public abstract unsafe class WlResource
     private void OnNativeDestroyed()
     {
         _destroyed = true;
+        Owned.TryRemove(_handle, out _);
         _handle = 0;
         if (_selfHandle.IsAllocated)
         {
@@ -163,7 +174,11 @@ public abstract unsafe class WlResource
 
     // ---- Request argument decoding (called by generated code) ----
 
-    /// <summary>Decodes an object argument via its resource's user data.</summary>
+    /// <summary>
+    /// Decodes an object argument. Returns <c>null</c> for resources this
+    /// library did not create rather than reinterpreting their user
+    /// data. Use <see cref="GetResourceHandle"/> to reach those.
+    /// </summary>
     protected static T? GetResource<T>(WlArg arg) where T : WlResource
     {
         if (arg.Ptr == 0)
@@ -171,14 +186,15 @@ public abstract unsafe class WlResource
             return null;
         }
 
-        var userData = (nint)LibWaylandServer.wl_resource_get_user_data((wl_resource*)arg.Ptr);
-        if (userData == 0)
-        {
-            return null;
-        }
-
-        return GCHandle.FromIntPtr(userData).Target as T;
+        return Owned.TryGetValue(arg.Ptr, out var resource) ? resource as T : null;
     }
+
+    /// <summary>
+    /// The raw <c>wl_resource*</c> of an object argument, regardless of owner.
+    /// Use to bridge to a native library that owns the resource, e.g.
+    /// <c>wlr_surface_from_resource</c>. Returns 0 for a null argument.
+    /// </summary>
+    protected static nint GetResourceHandle(WlArg arg) => arg.Ptr;
 
     protected static string? GetString(WlArg arg) => Marshal.PtrToStringUTF8(arg.Ptr);
 

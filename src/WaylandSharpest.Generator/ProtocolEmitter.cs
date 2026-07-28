@@ -579,11 +579,21 @@ namespace WaylandSharpest.Generator
                         {
                             var type = target?.ProxyFqn ?? ProxyBase;
                             Add($"{type}?", arg.Name, $"GetProxy<{type}>(args[{wire}])", arg.Summary);
+                            Add(
+                                "nint",
+                                arg.Name + "_handle",
+                                $"GetProxyHandle(args[{wire}])",
+                                $"Raw wl_proxy pointer of '{arg.Name}'; valid even when the proxy is owned by another library.");
                         }
                         else
                         {
                             var type = target?.ResourceFqn ?? ResourceBase;
                             Add($"{type}?", arg.Name, $"GetResource<{type}>(args[{wire}])", arg.Summary);
+                            Add(
+                                "nint",
+                                arg.Name + "_handle",
+                                $"GetResourceHandle(args[{wire}])",
+                                $"Raw wl_resource pointer of '{arg.Name}'; valid even when the resource is owned by another library.");
                         }
 
                         wire++;
