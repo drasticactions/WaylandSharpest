@@ -5,17 +5,12 @@ using Wayland.Native;
 namespace Wayland.Server;
 
 /// <summary>
-/// Base class for generated server-side protocol objects. Incoming requests are
-/// delivered by the display's transport; generated subclasses decode arguments
-/// in <see cref="HandleRequest"/> and expose them as C# events. Protocol events
-/// are sent with <see cref="PostEvent"/>.
+/// Base class for generated server-side protocol objects.
 /// </summary>
 public abstract unsafe class WlResource
 {
     /// <summary>
-    /// Resources created by this library, keyed by transport handle. Argument
-    /// decoding resolves through this rather than through transport user data,
-    /// which may belong to another library sharing the display (e.g. wlroots).
+    /// Resources created by this library, keyed by transport handle.
     /// </summary>
     private static readonly ConcurrentDictionary<nint, WlResource> Owned = new();
 

@@ -152,6 +152,140 @@ internal sealed unsafe class LibWaylandEventLoop : IWlEventLoop
 
     public int Dispatch(int timeoutMs) =>
         LibWaylandServer.wl_event_loop_dispatch((wl_event_loop*)RawHandle, timeoutMs);
+
+    public IWlEventSource AddFd(int fd, WlFdEvents events, Action<int, WlFdEvents> callback) =>
+        LibWaylandEventSource.AddFd(this, fd, events, callback);
+
+    public IWlEventSource AddTimer(Action callback) =>
+        LibWaylandEventSource.AddTimer(this, callback);
+
+    public IWlEventSource AddIdle(Action callback) =>
+        LibWaylandEventSource.AddIdle(this, callback);
+}
+
+internal sealed unsafe class LibWaylandEventSource : IWlEventSource
+{
+    private readonly Action<int, WlFdEvents>? _fdCallback;
+    private readonly Action? _callback;
+    private readonly bool _oneShot;
+    private nint _handle;
+    private GCHandle _selfHandle;
+
+    private LibWaylandEventSource(Action<int, WlFdEvents>? fdCallback, Action? callback, bool oneShot)
+    {
+        _fdCallback = fdCallback;
+        _callback = callback;
+        _oneShot = oneShot;
+        _selfHandle = GCHandle.Alloc(this);
+    }
+
+    public bool IsRemoved => _handle == 0;
+
+    internal static LibWaylandEventSource AddFd(LibWaylandEventLoop loop, int fd, WlFdEvents events, Action<int, WlFdEvents> callback)
+    {
+        var source = new LibWaylandEventSource(callback, null, oneShot: false);
+        var handle = LibWaylandServer.wl_event_loop_add_fd(
+            (wl_event_loop*)loop.RawHandle, fd, (uint)events, &FdThunk, (void*)GCHandle.ToIntPtr(source._selfHandle));
+        return source.Register((nint)handle, $"wl_event_loop_add_fd({fd})");
+    }
+
+    internal static LibWaylandEventSource AddTimer(LibWaylandEventLoop loop, Action callback)
+    {
+        var source = new LibWaylandEventSource(null, callback, oneShot: false);
+        var handle = LibWaylandServer.wl_event_loop_add_timer(
+            (wl_event_loop*)loop.RawHandle, &TimerThunk, (void*)GCHandle.ToIntPtr(source._selfHandle));
+        return source.Register((nint)handle, "wl_event_loop_add_timer");
+    }
+
+    internal static LibWaylandEventSource AddIdle(LibWaylandEventLoop loop, Action callback)
+    {
+        var source = new LibWaylandEventSource(null, callback, oneShot: true);
+        var handle = LibWaylandServer.wl_event_loop_add_idle(
+            (wl_event_loop*)loop.RawHandle, &IdleThunk, (void*)GCHandle.ToIntPtr(source._selfHandle));
+        return source.Register((nint)handle, "wl_event_loop_add_idle");
+    }
+
+    private LibWaylandEventSource Register(nint handle, string what)
+    {
+        if (handle == 0)
+        {
+            _selfHandle.Free();
+            throw new WaylandException($"{what} failed.");
+        }
+
+        _handle = handle;
+        return this;
+    }
+
+    public void Remove()
+    {
+        if (_handle == 0)
+        {
+            return;
+        }
+
+        LibWaylandServer.wl_event_source_remove((wl_event_source*)_handle);
+        Release();
+    }
+
+    public void UpdateTimer(int delayMs)
+    {
+        ObjectDisposedException.ThrowIf(_handle == 0, this);
+        if (LibWaylandServer.wl_event_source_timer_update((wl_event_source*)_handle, delayMs) != 0)
+        {
+            throw new WaylandException("wl_event_source_timer_update failed.");
+        }
+    }
+
+    public void UpdateFd(WlFdEvents events)
+    {
+        ObjectDisposedException.ThrowIf(_handle == 0, this);
+        if (LibWaylandServer.wl_event_source_fd_update((wl_event_source*)_handle, (uint)events) != 0)
+        {
+            throw new WaylandException("wl_event_source_fd_update failed.");
+        }
+    }
+
+    private void Release()
+    {
+        _handle = 0;
+        if (_selfHandle.IsAllocated)
+        {
+            _selfHandle.Free();
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int FdThunk(int fd, uint mask, void* data)
+    {
+        if (GCHandle.FromIntPtr((nint)data).Target is LibWaylandEventSource source)
+        {
+            source._fdCallback!(fd, (WlFdEvents)mask);
+        }
+
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int TimerThunk(void* data)
+    {
+        if (GCHandle.FromIntPtr((nint)data).Target is LibWaylandEventSource source)
+        {
+            source._callback!();
+        }
+
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void IdleThunk(void* data)
+    {
+        if (GCHandle.FromIntPtr((nint)data).Target is LibWaylandEventSource source)
+        {
+            source.Release();
+            source._callback!();
+        }
+    }
 }
 
 internal sealed unsafe class LibWaylandClient : IWlClient

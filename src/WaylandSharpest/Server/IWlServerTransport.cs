@@ -39,6 +39,41 @@ public interface IWlEventLoop
 
     /// <summary>Dispatches pending work; returns negative on failure.</summary>
     int Dispatch(int timeoutMs);
+
+    /// <summary>Watches a file descriptor. The callback must not throw.</summary>
+    IWlEventSource AddFd(int fd, WlFdEvents events, Action<int, WlFdEvents> callback);
+
+    /// <summary>Adds a disarmed timer; arm it with <see cref="IWlEventSource.UpdateTimer"/>. The callback must not throw.</summary>
+    IWlEventSource AddTimer(Action callback);
+
+    /// <summary>Adds a one-shot idle callback, run before the loop next blocks. The callback must not throw.</summary>
+    IWlEventSource AddIdle(Action callback);
+}
+
+/// <summary>A registered event-loop source.</summary>
+public interface IWlEventSource
+{
+    /// <summary>True once removed, or after a one-shot source has fired.</summary>
+    bool IsRemoved { get; }
+
+    void Remove();
+
+    /// <summary>Arms (delay in ms) or disarms (0) a timer source.</summary>
+    void UpdateTimer(int delayMs);
+
+    /// <summary>Changes the watched events of an fd source.</summary>
+    void UpdateFd(WlFdEvents events);
+}
+
+/// <summary>Readiness mask for fd event sources (matches <c>WL_EVENT_*</c>).</summary>
+[Flags]
+public enum WlFdEvents : uint
+{
+    None = 0,
+    Readable = 1,
+    Writable = 2,
+    Hangup = 4,
+    Error = 8,
 }
 
 /// <summary>Transport half of a <see cref="WlClient"/>.</summary>

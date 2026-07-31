@@ -144,9 +144,7 @@ public sealed class ObjectArgumentTests : IDisposable
     [Fact]
     public void Foreign_resource_argument_decodes_to_null_with_usable_handle()
     {
-        // Simulates a resource owned by another native library (e.g. wlroots):
-        // created behind WaylandSharpest's back, with user_data pointing at a
-        // plain heap allocation rather than a GCHandle.
+        // Simulates a resource owned by another native library.
         var foreignUserData = Marshal.AllocHGlobal(16);
         nint foreignRegion = 0;
         var setInputRegionRaised = false;
