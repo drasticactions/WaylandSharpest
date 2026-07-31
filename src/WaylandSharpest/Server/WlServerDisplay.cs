@@ -44,6 +44,21 @@ public sealed class WlServerDisplay : IDisposable
     /// <summary>Creates a client for an already-connected socket fd.</summary>
     public WlClient CreateClient(int fd) => _impl.CreateClient(fd);
 
+    /// <summary>
+    /// Decides whether <paramref name="client"/> may see a global.
+    /// <paramref name="global"/> is the owning wrapper when the global was
+    /// created through this display; <paramref name="interfaceName"/> is
+    /// always present.
+    /// </summary>
+    public delegate bool GlobalFilter(WlClient client, WlGlobal? global, string interfaceName);
+
+    /// <summary>
+    /// Installs (or clears, with null) a per-client global visibility filter:
+    /// globals for which the filter returns false are invisible to that
+    /// client, both in registry listings and for binding.
+    /// </summary>
+    public void SetGlobalFilter(GlobalFilter? filter) => _impl.SetGlobalFilter(filter);
+
     /// <summary>Publishes a global; <paramref name="onBind"/> is invoked when a client binds it.</summary>
     public WlGlobal CreateGlobal(WlInterfaceSpec iface, int version, WlGlobal.BindHandler onBind) =>
         new(this, iface, version, onBind);

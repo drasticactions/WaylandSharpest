@@ -31,6 +31,9 @@ public sealed class WlClient
     /// <summary>True once the client has disconnected or been destroyed.</summary>
     public bool IsDestroyed => _destroyed;
 
+    /// <summary>Raised when the client disconnects and its state is torn down.</summary>
+    public event Action? Destroyed;
+
     internal IWlClient Impl
     {
         get
@@ -55,5 +58,9 @@ public sealed class WlClient
         }
     }
 
-    internal void OnTransportDestroyed() => _destroyed = true;
+    internal void OnTransportDestroyed()
+    {
+        _destroyed = true;
+        Destroyed?.Invoke();
+    }
 }

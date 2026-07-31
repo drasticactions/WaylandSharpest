@@ -16,8 +16,12 @@ public sealed class WlGlobal : IDisposable
     internal WlGlobal(WlServerDisplay display, WlInterfaceSpec iface, int version, BindHandler onBind)
     {
         _onBind = onBind;
+        InterfaceName = iface.Name;
         _impl = display.Impl.CreateGlobal(this, iface, version);
     }
+
+    /// <summary>The protocol interface this global advertises.</summary>
+    public string InterfaceName { get; }
 
     /// <summary>Called by the transport when a client binds this global.</summary>
     internal void HandleBind(WlClient client, uint version, uint id) => _onBind(client, version, id);

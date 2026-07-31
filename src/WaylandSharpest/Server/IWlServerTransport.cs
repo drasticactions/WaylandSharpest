@@ -33,6 +33,8 @@ public interface IWlDisplay : IDisposable
 
     /// <summary>Allocates the next event serial.</summary>
     uint NextSerial();
+
+    void SetGlobalFilter(WlServerDisplay.GlobalFilter? filter);
 }
 
 /// <summary>Transport half of a <see cref="WlEventLoop"/>.</summary>

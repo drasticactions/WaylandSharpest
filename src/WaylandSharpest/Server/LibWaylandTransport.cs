@@ -93,6 +93,55 @@ internal sealed unsafe class LibWaylandDisplay : IWlDisplay
 
     public uint NextSerial() => LibWaylandServer.wl_display_next_serial((wl_display*)_handle);
 
+    private WlServerDisplay.GlobalFilter? _globalFilter;
+    private GCHandle _filterSelf;
+
+    public void SetGlobalFilter(WlServerDisplay.GlobalFilter? filter)
+    {
+        _globalFilter = filter;
+        if (filter is null)
+        {
+            LibWaylandServer.wl_display_set_global_filter((wl_display*)_handle, null, null);
+            return;
+        }
+
+        if (!_filterSelf.IsAllocated)
+        {
+            _filterSelf = GCHandle.Alloc(this);
+        }
+
+        LibWaylandServer.wl_display_set_global_filter((wl_display*)_handle, &GlobalFilterThunk, (void*)GCHandle.ToIntPtr(_filterSelf));
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static byte GlobalFilterThunk(wl_client* client, wl_global* global, void* data)
+    {
+        var self = (LibWaylandDisplay?)GCHandle.FromIntPtr((nint)data).Target;
+        if (self?._globalFilter is not { } filter)
+        {
+            return 1;
+        }
+
+        try
+        {
+            var iface = LibWaylandServer.wl_global_get_interface(global);
+            var name = Marshal.PtrToStringUTF8((nint)iface->name) ?? string.Empty;
+            WlGlobal? owned = null;
+            var user = LibWaylandServer.wl_global_get_user_data(global);
+            if (user != null && GCHandle.FromIntPtr((nint)user).Target is LibWaylandGlobal owner)
+            {
+                owned = owner.Owner;
+            }
+
+            return filter(self.GetOrCreateClient((nint)client), owned, name) ? (byte)1 : (byte)0;
+        }
+        catch
+        {
+            // A throwing filter must not unwind into libwayland.
+            return 1;
+        }
+    }
+
     public void Dispose()
     {
         if (_handle == 0)
@@ -419,6 +468,8 @@ internal sealed unsafe class LibWaylandResource : IWlResource
 internal sealed unsafe class LibWaylandGlobal : IWlGlobal
 {
     private readonly WlGlobal _owner;
+
+    internal WlGlobal Owner => _owner;
     private readonly LibWaylandDisplay _display;
     private nint _handle;
     private GCHandle _selfHandle;
