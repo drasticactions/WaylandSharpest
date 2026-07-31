@@ -91,6 +91,8 @@ internal sealed unsafe class LibWaylandDisplay : IWlDisplay
 
     public void FlushClients() => LibWaylandServer.wl_display_flush_clients((wl_display*)_handle);
 
+    public uint NextSerial() => LibWaylandServer.wl_display_next_serial((wl_display*)_handle);
+
     public void Dispose()
     {
         if (_handle == 0)

@@ -30,6 +30,9 @@ public interface IWlDisplay : IDisposable
     void Terminate();
 
     void FlushClients();
+
+    /// <summary>Allocates the next event serial.</summary>
+    uint NextSerial();
 }
 
 /// <summary>Transport half of a <see cref="WlEventLoop"/>.</summary>

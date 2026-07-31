@@ -55,6 +55,8 @@ public sealed class WlServerDisplay : IDisposable
 
     public void FlushClients() => _impl.FlushClients();
 
+    public uint NextSerial() => _impl.NextSerial();
+
     internal void CaptureDispatchException(Exception exception) => _dispatchException ??= exception;
 
     internal void RethrowPendingDispatchException()
