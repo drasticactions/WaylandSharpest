@@ -10,7 +10,7 @@
     <RepoRoot>$(MSBuildThisFileDirectory)</RepoRoot>
     <SignAssembly>true</SignAssembly>
     <AssemblyOriginatorKeyFile>$(MSBuildThisFileDirectory)Key.snk</AssemblyOriginatorKeyFile>
-    <Version>1.26.2</Version>
+    <Version>1.26.3</Version>
     <PackageVersion>$(Version)</PackageVersion>
   </PropertyGroup>
 
