@@ -1,36 +1,59 @@
-using System.Collections.Concurrent;
-using Wayland.Native;
-
 namespace Wayland.Server;
 
 /// <summary>
 /// A connected client on the server side (<c>wl_client</c>). Instances are
-/// interned per native pointer so resource callbacks observe stable identity.
+/// interned per underlying transport client so resource callbacks observe
+/// stable identity, and are invalidated when the client disconnects.
 /// </summary>
-public sealed unsafe class WlClient
+public sealed class WlClient
 {
-    private static readonly ConcurrentDictionary<nint, WlClient> Instances = new();
+    private readonly IWlClient _impl;
+    private bool _destroyed;
 
-    private WlClient(nint handle, WlServerDisplay? display)
+    internal WlClient(IWlClient impl, WlServerDisplay? display)
     {
-        RawHandle = handle;
+        _impl = impl;
         Display = display;
     }
 
-    public nint RawHandle { get; }
+    public nint RawHandle
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_destroyed, this);
+            return _impl.RawHandle;
+        }
+    }
 
     /// <summary>The owning display, when known (clients created through WaylandSharpest APIs).</summary>
     public WlServerDisplay? Display { get; }
 
-    internal static WlClient Get(nint handle, WlServerDisplay? display) =>
-        Instances.GetOrAdd(handle, static (h, d) => new WlClient(h, d), display);
+    /// <summary>True once the client has disconnected or been destroyed.</summary>
+    public bool IsDestroyed => _destroyed;
 
-    public void Flush() => LibWaylandServer.wl_client_flush((wl_client*)RawHandle);
+    internal IWlClient Impl
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_destroyed, this);
+            return _impl;
+        }
+    }
+
+    public void Flush()
+    {
+        ObjectDisposedException.ThrowIf(_destroyed, this);
+        _impl.Flush();
+    }
 
     /// <summary>Forcibly disconnects the client.</summary>
     public void Destroy()
     {
-        Instances.TryRemove(RawHandle, out _);
-        LibWaylandServer.wl_client_destroy((wl_client*)RawHandle);
+        if (!_destroyed)
+        {
+            _impl.Destroy();
+        }
     }
+
+    internal void OnTransportDestroyed() => _destroyed = true;
 }

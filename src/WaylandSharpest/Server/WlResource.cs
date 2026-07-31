@@ -1,47 +1,33 @@
 using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Wayland.Native;
 
 namespace Wayland.Server;
 
 /// <summary>
-/// Base class for generated server-side protocol objects, wrapping a native
-/// <c>wl_resource</c>. Incoming requests are delivered through a single
-/// unmanaged dispatcher; generated subclasses decode arguments in
-/// <see cref="HandleRequest"/> and expose them as C# events. Protocol events are
-/// sent with <see cref="PostEvent"/>.
+/// Base class for generated server-side protocol objects. Incoming requests are
+/// delivered by the display's transport; generated subclasses decode arguments
+/// in <see cref="HandleRequest"/> and expose them as C# events. Protocol events
+/// are sent with <see cref="PostEvent"/>.
 /// </summary>
 public abstract unsafe class WlResource
 {
     /// <summary>
-    /// Resources created by this library, keyed by native pointer. Argument
-    /// decoding resolves through this rather than through
-    /// <c>wl_resource_get_user_data</c>, whose value may belong to another
-    /// library sharing the display (e.g. wlroots).
+    /// Resources created by this library, keyed by transport handle. Argument
+    /// decoding resolves through this rather than through transport user data,
+    /// which may belong to another library sharing the display (e.g. wlroots).
     /// </summary>
     private static readonly ConcurrentDictionary<nint, WlResource> Owned = new();
 
-    private nint _handle;
-    private GCHandle _selfHandle;
+    private readonly IWlResource _impl;
     private bool _destroyed;
 
-    /// <summary>Creates the native resource for a bound or requested protocol object id.</summary>
+    /// <summary>Creates the transport resource for a bound or requested protocol object id.</summary>
     protected WlResource(WlClient client, WlInterfaceSpec spec, uint version, uint id)
     {
         Client = client;
-        var resource = LibWaylandServer.wl_resource_create(
-            (wl_client*)client.RawHandle, spec.NativePointer, (int)version, id);
-        if (resource == null)
-        {
-            throw new WaylandException($"wl_resource_create failed for '{spec.Name}' v{version} id {id}.");
-        }
-
-        _handle = (nint)resource;
-        _selfHandle = GCHandle.Alloc(this);
-        Owned[_handle] = this;
-        var self = (void*)GCHandle.ToIntPtr(_selfHandle);
-        LibWaylandServer.wl_resource_set_dispatcher(resource, &DispatchThunk, self, self, &DestroyThunk);
+        _impl = client.Impl.CreateResource(this, spec, version, id);
+        Owned[_impl.RawHandle] = this;
     }
 
     public WlClient Client { get; }
@@ -51,17 +37,31 @@ public abstract unsafe class WlResource
         get
         {
             ObjectDisposedException.ThrowIf(_destroyed, this);
-            return _handle;
+            return _impl.RawHandle;
         }
     }
 
-    public uint Id => LibWaylandServer.wl_resource_get_id((wl_resource*)RawHandle);
+    public uint Id
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_destroyed, this);
+            return _impl.Id;
+        }
+    }
 
-    public uint Version => (uint)LibWaylandServer.wl_resource_get_version((wl_resource*)RawHandle);
+    public uint Version
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_destroyed, this);
+            return _impl.Version;
+        }
+    }
 
     public bool IsDestroyed => _destroyed;
 
-    /// <summary>Raised when the native resource is destroyed (client disconnect or destructor request).</summary>
+    /// <summary>Raised when the underlying resource is destroyed (client disconnect or destructor request).</summary>
     public event EventHandler? Destroyed;
 
     /// <summary>Interface metadata; implemented by generated classes.</summary>
@@ -75,76 +75,31 @@ public abstract unsafe class WlResource
     {
         if (!_destroyed)
         {
-            LibWaylandServer.wl_resource_destroy((wl_resource*)_handle);
+            _impl.Destroy();
         }
     }
 
     /// <summary>Posts a fatal protocol error to the client owning this resource.</summary>
     public void PostError(uint code, string message)
     {
-        var format = Marshal.StringToCoTaskMemUTF8("%s");
-        var text = Marshal.StringToCoTaskMemUTF8(message);
-        try
-        {
-            LibWaylandServer.wl_resource_post_error_fixed(
-                (wl_resource*)RawHandle, code, (sbyte*)format, (sbyte*)text);
-        }
-        finally
-        {
-            Marshal.FreeCoTaskMem(format);
-            Marshal.FreeCoTaskMem(text);
-        }
+        ObjectDisposedException.ThrowIf(_destroyed, this);
+        _impl.PostError(code, message);
     }
 
-    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static int DispatchThunk(void* implementation, void* target, uint opcode, wl_message* message, wl_argument* args)
+    /// <summary>Delivers an incoming request from the transport. May throw; the transport captures.</summary>
+    internal void DispatchIncoming(uint opcode, ReadOnlySpan<WlArg> args)
     {
-        var resource = (WlResource?)GCHandle.FromIntPtr((nint)implementation).Target;
-        if (resource is null || resource._destroyed)
+        if (!_destroyed)
         {
-            return 0;
-        }
-
-        try
-        {
-            var spec = resource.Spec;
-            var argCount = opcode < spec.Requests.Count ? spec.Requests[(int)opcode].WireArgCount : 0;
-            resource.HandleRequest(opcode, new ReadOnlySpan<WlArg>(args, argCount));
-        }
-        catch (Exception ex)
-        {
-            resource.Client.Display?.CaptureDispatchException(ex);
-        }
-
-        return 0;
-    }
-
-    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static void DestroyThunk(wl_resource* resource)
-    {
-        var userData = (nint)LibWaylandServer.wl_resource_get_user_data(resource);
-        if (userData == 0)
-        {
-            return;
-        }
-
-        var handle = GCHandle.FromIntPtr(userData);
-        if (handle.Target is WlResource managed)
-        {
-            managed.OnNativeDestroyed();
+            HandleRequest(opcode, args);
         }
     }
 
-    private void OnNativeDestroyed()
+    /// <summary>Called by the transport when the underlying resource has been destroyed.</summary>
+    internal void OnTransportDestroyed(nint rawHandle)
     {
         _destroyed = true;
-        Owned.TryRemove(_handle, out _);
-        _handle = 0;
-        if (_selfHandle.IsAllocated)
-        {
-            _selfHandle.Free();
-        }
-
+        Owned.TryRemove(rawHandle, out _);
         try
         {
             Destroyed?.Invoke(this, EventArgs.Empty);
@@ -165,11 +120,8 @@ public abstract unsafe class WlResource
 
     protected void PostEvent(uint opcode, scoped ReadOnlySpan<WlArg> args)
     {
-        fixed (WlArg* argsPtr = args)
-        {
-            LibWaylandServer.wl_resource_post_event_array(
-                (wl_resource*)RawHandle, opcode, (wl_argument*)argsPtr);
-        }
+        ObjectDisposedException.ThrowIf(_destroyed, this);
+        _impl.PostEvent(opcode, args);
     }
 
     // ---- Request argument decoding (called by generated code) ----

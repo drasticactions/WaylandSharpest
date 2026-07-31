@@ -1,21 +1,20 @@
-using Wayland.Native;
-
 namespace Wayland.Server;
 
 /// <summary>
 /// The server display's event loop. Owned by the display; not disposable here.
 /// </summary>
-public sealed unsafe class WlEventLoop
+public sealed class WlEventLoop
 {
+    private readonly IWlEventLoop _impl;
     private readonly WlServerDisplay _display;
 
-    internal WlEventLoop(nint handle, WlServerDisplay display)
+    internal WlEventLoop(IWlEventLoop impl, WlServerDisplay display)
     {
-        RawHandle = handle;
+        _impl = impl;
         _display = display;
     }
 
-    public nint RawHandle { get; }
+    public nint RawHandle => _impl.RawHandle;
 
     /// <summary>
     /// Dispatches pending server work. <paramref name="timeoutMs"/>: 0 = poll,
@@ -23,11 +22,11 @@ public sealed unsafe class WlEventLoop
     /// </summary>
     public void Dispatch(int timeoutMs)
     {
-        var result = LibWaylandServer.wl_event_loop_dispatch((wl_event_loop*)RawHandle, timeoutMs);
+        var result = _impl.Dispatch(timeoutMs);
         _display.RethrowPendingDispatchException();
         if (result < 0)
         {
-            throw new WaylandException("wl_event_loop_dispatch failed.");
+            throw new WaylandException("Event loop dispatch failed.");
         }
     }
 }

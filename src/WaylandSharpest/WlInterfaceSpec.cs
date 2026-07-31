@@ -47,11 +47,6 @@ public sealed unsafe class WlInterfaceSpec
     {
         get
         {
-            if (_native != null)
-            {
-                return _native;
-            }
-
             lock (BuildLock)
             {
                 if (_native == null)
