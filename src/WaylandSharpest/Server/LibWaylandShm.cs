@@ -66,6 +66,26 @@ public readonly unsafe struct WlShmBufferRef
 
     /// <summary>Pool data pointer; only valid between Begin/EndAccess.</summary>
     public nint Data => (nint)LibWaylandServer.wl_shm_buffer_get_data(_buffer);
+
+    public WlShmPoolRef RefPool() => new((nint)LibWaylandServer.wl_shm_buffer_ref_pool(_buffer));
+}
+
+/// <summary>A reference on an shm pool's mapping; release exactly once.</summary>
+public readonly unsafe struct WlShmPoolRef
+{
+    private readonly nint _pool;
+
+    internal WlShmPoolRef(nint pool) => _pool = pool;
+
+    public bool IsValid => _pool != 0;
+
+    public void Unref()
+    {
+        if (_pool != 0)
+        {
+            LibWaylandServer.wl_shm_pool_unref((wl_shm_pool*)_pool);
+        }
+    }
 }
 
 /// <summary>
