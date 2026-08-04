@@ -30,7 +30,11 @@ public sealed unsafe partial class WlDisplay
                 throw new WaylandException($"Failed to connect to Wayland display '{name ?? Environment.GetEnvironmentVariable("WAYLAND_DISPLAY") ?? "(default)"}'.");
             }
 
-            return new WlDisplay((nint)display);
+            // Connect builds the root proxy directly rather than through
+            // CreateWrapped, so it registers itself.
+            var wrapper = new WlDisplay((nint)display);
+            wrapper.Register();
+            return wrapper;
         }
         finally
         {
@@ -47,11 +51,24 @@ public sealed unsafe partial class WlDisplay
             throw new WaylandException($"Failed to create Wayland display from fd {fd}.");
         }
 
-        return new WlDisplay((nint)display);
+        var wrapper = new WlDisplay((nint)display);
+        wrapper.Register();
+        return wrapper;
     }
 
     /// <summary>The connection's file descriptor, for external event loops.</summary>
     public int Fd => LibWaylandClient.wl_display_get_fd((wl_display*)RawHandle);
+
+    /// <summary>
+    /// Creates an event queue. Proxies assigned to it deliver their events only
+    /// when that queue is dispatched, which is what makes a second thread
+    /// possible. The queue must outlive every proxy assigned to it.
+    /// </summary>
+    /// <param name="name">
+    /// A debug label, used where the loaded libwayland supports named queues
+    /// (1.23+) and ignored otherwise.
+    /// </param>
+    public WlEventQueue CreateQueue(string? name = null) => new(this, name);
 
     /// <summary>Blocks until all pending requests have been processed by the compositor.</summary>
     public void Roundtrip() => AfterDispatch(LibWaylandClient.wl_display_roundtrip((wl_display*)RawHandle));
@@ -71,6 +88,125 @@ public sealed unsafe partial class WlDisplay
         }
     }
 
+    /// <summary>
+    /// Waits up to <paramref name="timeoutMs"/> for events and reads them into
+    /// their queues without dispatching; returns false on timeout. Runs the full
+    /// prepare/poll/read protocol correctly, so this is the safe default for
+    /// hosting the connection inside another loop. Call
+    /// <see cref="DispatchPending"/> (or the queue's) afterwards.
+    /// </summary>
+    /// <param name="timeoutMs">Milliseconds to wait; negative blocks indefinitely.</param>
+    /// <param name="queue">The queue to read for, or null for the default queue.</param>
+    public bool TryReadEvents(int timeoutMs, WlEventQueue? queue = null)
+    {
+        // Pending events mean there is nothing to wait for: report them as
+        // readable so the caller dispatches instead of blocking.
+        if (!TryPrepareRead(queue))
+        {
+            return true;
+        }
+
+        try
+        {
+            Flush();
+        }
+        catch
+        {
+            CancelRead();
+            throw;
+        }
+
+        var poll = new pollfd { fd = Fd, events = POLLIN };
+        int ready;
+        do
+        {
+            ready = LibC.poll(&poll, 1, timeoutMs);
+        }
+        while (ready < 0 && Marshal.GetLastPInvokeError() == EINTR);
+
+        if (ready <= 0)
+        {
+            CancelRead();
+            if (ready < 0)
+            {
+                throw new WaylandException($"poll on the Wayland connection failed (errno {Marshal.GetLastPInvokeError()}).");
+            }
+
+            return false;
+        }
+
+        ReadEvents();
+        return true;
+    }
+
+    /// <summary>
+    /// Announces intent to read. Returns false when the queue already has
+    /// undispatched events — dispatch them and retry.
+    /// </summary>
+    /// <remarks>
+    /// Advanced. On true you <strong>must</strong> follow with
+    /// <see cref="ReadEvents"/> or <see cref="CancelRead"/>: a prepared read that
+    /// is never resolved blocks every other thread reading this connection, and
+    /// that hang has no local symptom. Prefer <see cref="TryReadEvents"/> unless
+    /// you are integrating with a host loop whose prepare and check phases live
+    /// in different callbacks.
+    /// </remarks>
+    public bool TryPrepareRead(WlEventQueue? queue = null)
+    {
+        // Nonzero means one thing only: the queue still holds undispatched
+        // events. libwayland's own documented idiom loops on it rather than
+        // treating it as an error.
+        var result = queue is null
+            ? LibWaylandClient.wl_display_prepare_read((wl_display*)RawHandle)
+            : LibWaylandClient.wl_display_prepare_read_queue(
+                (wl_display*)RawHandle, (wl_event_queue*)queue.RawHandle);
+        return result == 0;
+    }
+
+    /// <summary>
+    /// Reads from the socket into the queues. Only valid after
+    /// <see cref="TryPrepareRead"/> returned true.
+    /// </summary>
+    public void ReadEvents()
+    {
+        if (LibWaylandClient.wl_display_read_events((wl_display*)RawHandle) < 0)
+        {
+            ThrowConnectionError();
+        }
+    }
+
+    /// <summary>Abandons a prepared read without reading.</summary>
+    public void CancelRead() => LibWaylandClient.wl_display_cancel_read((wl_display*)RawHandle);
+
+    /// <summary>
+    /// Dispatches the default queue, blocking at most
+    /// <paramref name="timeoutMs"/> milliseconds.
+    /// </summary>
+    public void Dispatch(int timeoutMs)
+    {
+        if (HasDispatchTimeout)
+        {
+            var timeout = new Timespec
+            {
+                Seconds = timeoutMs / 1000,
+                Nanoseconds = (timeoutMs % 1000) * 1_000_000,
+            };
+            AfterDispatch(LibWaylandClient.wl_display_dispatch_timeout((wl_display*)RawHandle, (timespec*)&timeout));
+            return;
+        }
+
+        if (TryReadEvents(timeoutMs))
+        {
+            DispatchPending();
+        }
+    }
+
+    /// <summary>wl_display_dispatch_timeout is libwayland 1.23.91.</summary>
+    private static readonly bool HasDispatchTimeout = NativeFeatures.ClientHas("wl_display_dispatch_timeout");
+
+    private const int EINTR = 4;
+    private const short POLLIN = 1;
+
     internal void CaptureDispatchException(Exception exception) => _dispatchException ??= exception;
 
     private void AfterDispatch(int result)
@@ -87,7 +223,7 @@ public sealed unsafe partial class WlDisplay
         }
     }
 
-    private void ThrowConnectionError()
+    internal void ThrowConnectionError()
     {
         var error = LibWaylandClient.wl_display_get_error((wl_display*)RawHandle);
         wl_interface* iface = null;

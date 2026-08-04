@@ -22,4 +22,30 @@ internal static unsafe partial class LibC
 {
     [DllImport("libc", EntryPoint = "vsnprintf", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     internal static extern int vsnprintf(byte* buffer, nuint size, sbyte* format, nint args);
+
+    /// <summary>Waits for readiness on the connection fd during the prepare/read protocol.</summary>
+    [DllImport("libc", EntryPoint = "poll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true, SetLastError = true)]
+    internal static extern int poll(pollfd* fds, nuint count, int timeoutMs);
+}
+
+/// <summary>Managed mirror of <c>struct pollfd</c>.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct pollfd
+{
+    public int fd;
+    public short events;
+    public short revents;
+}
+
+/// <summary>
+/// Managed mirror of <c>struct timespec</c>. ClangSharp emits the type as an
+/// empty stub because the header only forward-declares it, so the layout is
+/// spelled out here; <c>time_t</c> and <c>long</c> are both pointer-sized on the
+/// architectures this library supports.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct Timespec
+{
+    public nint Seconds;
+    public nint Nanoseconds;
 }

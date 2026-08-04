@@ -21,6 +21,8 @@ public abstract unsafe class WlProxy : IDisposable
     private GCHandle _selfHandle;
     private bool _destroyed;
     private bool _borrowed;
+    private bool _isWrapper;
+    private WlEventQueue? _queue;
 
     protected WlProxy(nint handle, WlDisplay? display)
     {
@@ -31,7 +33,6 @@ public abstract unsafe class WlProxy : IDisposable
 
         _handle = handle;
         Display = display ?? (WlDisplay)this;
-        Owned[_handle] = this;
     }
 
     /// <summary>The connection this object belongs to.</summary>
@@ -63,6 +64,88 @@ public abstract unsafe class WlProxy : IDisposable
     /// </summary>
     public bool IsBorrowed => _borrowed;
 
+    /// <summary>
+    /// True when this is a queue wrapper rather than a real object: a second
+    /// handle used to send requests on the wrapped object's behalf. A wrapper
+    /// receives no events and destroying it does not destroy the object.
+    /// </summary>
+    public bool IsWrapper => _isWrapper;
+
+    /// <summary>
+    /// The queue this object's events are delivered on; <c>null</c> means the
+    /// display's default queue. Objects created by a request inherit their
+    /// creator's queue at creation time.
+    /// </summary>
+    public WlEventQueue? Queue => _queue;
+
+    /// <summary>
+    /// Moves this object's events to <paramref name="queue"/>; <c>null</c>
+    /// restores the default queue. Racy on an object that may already have
+    /// events in flight — prefer creating the object through a wrapper
+    /// (<see cref="CreateWrapper{T}"/>) so it is born on the right queue.
+    /// </summary>
+    public void SetQueue(WlEventQueue? queue)
+    {
+        ThrowIfDestroyed();
+        LibWaylandClient.wl_proxy_set_queue(
+            (wl_proxy*)_handle, queue is null ? null : (wl_event_queue*)queue.RawHandle);
+        TrackQueue(queue);
+    }
+
+    /// <summary>
+    /// Creates a queue wrapper for this object: a second handle that sends
+    /// requests on this object's behalf, where objects created through it are
+    /// born on the wrapper's queue instead of racing between creation and
+    /// <see cref="SetQueue"/>. A wrapper receives no events. Dispose it when
+    /// done; that does not destroy the underlying object.
+    /// </summary>
+    /// <remarks>
+    /// Do not send destructor requests through a wrapper: the destroy flag would
+    /// target the wrapper rather than the object.
+    /// </remarks>
+    public T CreateWrapper<T>(WlEventQueue? queue) where T : WlProxy
+    {
+        ThrowIfDestroyed();
+        var wrapper = LibWaylandClient.wl_proxy_create_wrapper((void*)_handle);
+        if (wrapper == null)
+        {
+            throw new WaylandException($"wl_proxy_create_wrapper failed for {Spec.Name}.");
+        }
+
+        // A wrapper is never registered in Owned and never gets a dispatcher:
+        // wl_proxy_add_dispatcher aborts the process on one.
+        var proxy = Spec.CreateProxy((nint)wrapper, Display);
+        proxy._isWrapper = true;
+        if (queue is not null)
+        {
+            LibWaylandClient.wl_proxy_set_queue((wl_proxy*)wrapper, (wl_event_queue*)queue.RawHandle);
+        }
+
+        proxy._queue = queue;
+        return (T)proxy;
+    }
+
+    /// <summary>
+    /// Reads the effective queue back from libwayland and updates the managed
+    /// accounting. A proxy created by a request inherits its parent's queue
+    /// inside libwayland without any managed call, so the count has to be
+    /// derived rather than tracked.
+    /// </summary>
+    private void SyncQueueFromNative() =>
+        TrackQueue(WlEventQueue.FromHandle((nint)LibWaylandClient.wl_proxy_get_queue((wl_proxy*)_handle)));
+
+    private void TrackQueue(WlEventQueue? queue)
+    {
+        if (ReferenceEquals(_queue, queue))
+        {
+            return;
+        }
+
+        _queue?.Detach();
+        _queue = queue;
+        queue?.Attach();
+    }
+
     /// <summary>Interface metadata; implemented by generated classes.</summary>
     protected abstract WlInterfaceSpec Spec { get; }
 
@@ -77,6 +160,18 @@ public abstract unsafe class WlProxy : IDisposable
     {
         if (_destroyed || _borrowed)
         {
+            return;
+        }
+
+        // The wrapper check must come first: generated classes override
+        // DisposeCore to send the interface's destructor request, which on a
+        // wrapper would destroy the real object and then abort the process in
+        // wl_proxy_destroy.
+        if (_isWrapper)
+        {
+            LibWaylandClient.wl_proxy_wrapper_destroy((void*)_handle);
+            MarkDestroyed();
+            GC.SuppressFinalize(this);
             return;
         }
 
@@ -97,6 +192,8 @@ public abstract unsafe class WlProxy : IDisposable
         _destroyed = true;
         Owned.TryRemove(_handle, out _);
         _handle = 0;
+        _queue?.Detach();
+        _queue = null;
         if (_selfHandle.IsAllocated)
         {
             _selfHandle.Free();
@@ -176,12 +273,27 @@ public abstract unsafe class WlProxy : IDisposable
         }
     }
 
-    /// <summary>Wraps a native proxy in its managed class and installs the event dispatcher.</summary>
+    /// <summary>
+    /// Wraps a native proxy in its managed class, registers it for
+    /// object-argument decoding, and installs the event dispatcher. This is the
+    /// single path for real proxies; wrappers deliberately skip all three.
+    /// </summary>
     internal static WlProxy CreateWrapped(WlInterfaceSpec iface, nint handle, WlDisplay display)
     {
         var proxy = iface.CreateProxy(handle, display);
+        proxy.Register();
         proxy.AttachDispatcher();
         return proxy;
+    }
+
+    /// <summary>
+    /// Publishes the proxy for object-argument decoding and records the queue
+    /// libwayland gave it.
+    /// </summary>
+    internal void Register()
+    {
+        Owned[_handle] = this;
+        SyncQueueFromNative();
     }
 
     /// <summary>
@@ -224,9 +336,18 @@ public abstract unsafe class WlProxy : IDisposable
         }
         catch (Exception ex)
         {
-            // Exceptions must not cross the unmanaged frame; the display rethrows
-            // after the dispatch call that triggered this event returns.
-            proxy.Display.CaptureDispatchException(ex);
+            // Exceptions must not cross the unmanaged frame; they are rethrown
+            // after the dispatch call that triggered this event returns. Route
+            // by queue so a render thread's handler does not surface on the main
+            // thread mid-unrelated-call.
+            if (proxy._queue is { } queue)
+            {
+                queue.CaptureDispatchException(ex);
+            }
+            else
+            {
+                proxy.Display.CaptureDispatchException(ex);
+            }
         }
 
         return 0;
