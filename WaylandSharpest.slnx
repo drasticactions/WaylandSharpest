@@ -4,6 +4,7 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/WaylandSharpest.Generator/WaylandSharpest.Generator.csproj" />
+    <Project Path="src/WaylandSharpest.Protocols/WaylandSharpest.Protocols.csproj" />
     <Project Path="src/WaylandSharpest/WaylandSharpest.csproj" />
   </Folder>
   <Folder Name="/tests/">

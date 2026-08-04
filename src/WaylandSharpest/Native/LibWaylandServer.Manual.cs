@@ -17,4 +17,16 @@ public static unsafe partial class LibWaylandServer
         uint code,
         sbyte* format,
         sbyte* message);
+
+    /// <summary>
+    /// <c>wl_log_func_t</c> is <c>void (*)(const char *fmt, va_list args)</c>.
+    /// A <c>va_list</c> cannot be marshalled portably, but on the two
+    /// architectures this library supports it is an array type that decays to a
+    /// pointer, so the incoming argument can be handed straight back to
+    /// <c>vsnprintf</c>. See <see cref="Wayland.WaylandLog"/>, which gates on
+    /// the architecture before installing a handler.
+    /// </summary>
+    [DllImport("wayland-server", EntryPoint = "wl_log_set_handler_server", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    public static extern void wl_log_set_handler_server(
+        delegate* unmanaged[Cdecl]<sbyte*, nint, void> handler);
 }

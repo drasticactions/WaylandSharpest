@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <SignAssembly>false</SignAssembly>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <IsPackable>true</IsPackable>
+    <PackageId>WaylandSharpest.Protocols</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!-- XML payload only: there is no assembly, so there are no symbols to pack. -->
+    <IncludeSymbols>false</IncludeSymbols>
+
+    <!-- The upstream release the payload was cut from. Consumers need this
+         number to reason about which interfaces and versions they get. -->
+    <WaylandProtocolsRelease>1.49</WaylandProtocolsRelease>
+    <Description>The wayland-protocols $(WaylandProtocolsRelease) XML files, for use with the WaylandSharpest source generator. Generates nothing until a protocol is named with a WaylandProtocolFromPackage item.</Description>
+  </PropertyGroup>
+
+  <ItemGroup Label="Payload">
+    <None Include="$(RepoRoot)external/wayland-protocols/stable/**/*.xml"
+          Pack="true" PackagePath="protocols/%(Filename)%(Extension)" Visible="false" />
+    <None Include="$(RepoRoot)external/wayland-protocols/staging/**/*.xml"
+          Pack="true" PackagePath="protocols/%(Filename)%(Extension)" Visible="false" />
+    <None Include="$(RepoRoot)external/wayland-protocols/unstable/**/*.xml"
+          Pack="true" PackagePath="protocols/%(Filename)%(Extension)" Visible="false" />
+    <None Include="$(RepoRoot)external/wayland-protocols/experimental/**/*.xml"
+          Pack="true" PackagePath="protocols/%(Filename)%(Extension)" Visible="false" />
+  </ItemGroup>
+
+  <!-- The upstream licence has no extension, and pack treats an extensionless
+       PackagePath as a directory; stage it under one it recognises. -->
+  <Target Name="StageProtocolsLicence" BeforeTargets="GenerateNuspec">
+    <Copy SourceFiles="$(RepoRoot)external/wayland-protocols/COPYING"
+          DestinationFiles="$(IntermediateOutputPath)COPYING.txt" />
+    <ItemGroup>
+      <_PackageFiles Include="$(IntermediateOutputPath)COPYING.txt"
+                     PackagePath="protocols/COPYING.txt" BuildAction="None" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup Label="Packaging">
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="build/WaylandSharpest.Protocols.targets" Pack="true" PackagePath="build/WaylandSharpest.Protocols.targets" />
+    <None Include="build/WaylandSharpest.Protocols.targets" Pack="true" PackagePath="buildTransitive/WaylandSharpest.Protocols.targets" />
+  </ItemGroup>
+
+</Project>

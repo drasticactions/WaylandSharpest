@@ -1,0 +1,73 @@
+<Project>
+
+  <PropertyGroup>
+    <WaylandProtocolsPayloadDirectory>$([MSBuild]::EnsureTrailingSlash('$(MSBuildThisFileDirectory)../protocols'))</WaylandProtocolsPayloadDirectory>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <_WaylandPackagedProtocol Include="$(WaylandProtocolsPayloadDirectory)*.xml" />
+    <CompilerVisibleItemMetadata Include="AdditionalFiles" MetadataName="WaylandNamespace" />
+  </ItemGroup>
+
+  <!--
+    Nothing is generated until a protocol is named, so referencing this package
+    costs nothing on its own, and opting out of the local wayland-protocols glob
+    with EnableDefaultWaylandProtocolItems=false does not pull anything in from
+    here. Identities are the XML basename without extension: xdg-shell,
+    linux-dmabuf-v1, text-input-unstable-v3.
+
+    Requests are promoted straight to AdditionalFiles rather than to
+    @(WaylandProtocol): the ordering between two packages' imports is not
+    guaranteed, so relying on WaylandSharpest.targets to promote them afterwards
+    would be a race.
+  -->
+  <Target Name="WaylandProtocolsResolveFromPackage"
+          BeforeTargets="GenerateMSBuildEditorConfigFileCore;CoreCompile"
+          Condition="'@(WaylandProtocolFromPackage)' != ''">
+
+    <ItemGroup>
+      <_WaylandFromPackage Include="@(WaylandProtocolFromPackage)">
+        <PayloadPath>$(WaylandProtocolsPayloadDirectory)%(Identity).xml</PayloadPath>
+      </_WaylandFromPackage>
+    </ItemGroup>
+
+    <ItemGroup>
+      <_WaylandFromPackageMissing Include="@(_WaylandFromPackage)"
+                                  Condition="!Exists('%(_WaylandFromPackage.PayloadPath)')" />
+
+      <!-- The consumer's metadata (notably WaylandNamespace) rides along. -->
+      <AdditionalFiles Include="@(_WaylandFromPackage->'%(PayloadPath)')"
+                       Condition="Exists('%(_WaylandFromPackage.PayloadPath)')" />
+    </ItemGroup>
+  </Target>
+
+  <!-- A typo that silently generates nothing surfaces later as a wall of
+       "type not found" errors pointing nowhere near the cause, so it fails the
+       build here instead, naming what was asked for and what is close to it. -->
+  <Target Name="WaylandProtocolsValidateRequests"
+          AfterTargets="WaylandProtocolsResolveFromPackage"
+          BeforeTargets="CoreCompile"
+          Condition="'@(_WaylandFromPackageMissing)' != ''"
+          Outputs="%(_WaylandFromPackageMissing.Identity)">
+
+    <PropertyGroup>
+      <_WaylandMissingIdentity>%(_WaylandFromPackageMissing.Identity)</_WaylandMissingIdentity>
+      <_WaylandMissingStem>$(_WaylandMissingIdentity.Replace('_', '-').Split('-')[0])</_WaylandMissingStem>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <_WaylandNearMatch Remove="@(_WaylandNearMatch)" />
+      <_WaylandNearMatch Include="@(_WaylandPackagedProtocol->'%(Filename)')"
+                         Condition="'$(_WaylandMissingStem)' != '' and $([System.String]::new('%(Filename)').Contains('$(_WaylandMissingStem)'))" />
+    </ItemGroup>
+
+    <Error Condition="'@(_WaylandNearMatch)' != ''"
+           Code="WLSP001"
+           Text="WaylandProtocolFromPackage identity '$(_WaylandMissingIdentity)' is not in WaylandSharpest.Protocols. Did you mean: @(_WaylandNearMatch, ', ')?" />
+
+    <Error Condition="'@(_WaylandNearMatch)' == ''"
+           Code="WLSP001"
+           Text="WaylandProtocolFromPackage identity '$(_WaylandMissingIdentity)' is not in WaylandSharpest.Protocols. Identities are the XML basename without extension, such as 'xdg-shell' or 'linux-dmabuf-v1'." />
+  </Target>
+
+</Project>
