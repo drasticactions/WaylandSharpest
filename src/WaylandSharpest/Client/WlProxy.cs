@@ -128,13 +128,24 @@ public abstract unsafe class WlProxy : IDisposable
     }
 
     /// <summary>
-    /// Reads the effective queue back from libwayland and updates the managed
-    /// accounting. A proxy created by a request inherits its parent's queue
-    /// inside libwayland without any managed call, so the count has to be
-    /// derived rather than tracked.
+    /// wl_proxy_get_queue is libwayland 1.22.91, which is recent enough that a
+    /// supported distribution will not have it — Ubuntu 24.04 ships 1.22.0.
     /// </summary>
-    private void SyncQueueFromNative() =>
-        TrackQueue(WlEventQueue.FromHandle((nint)LibWaylandClient.wl_proxy_get_queue((wl_proxy*)_handle)));
+    private static readonly bool HasGetQueue = NativeFeatures.ClientHas("wl_proxy_get_queue");
+
+    /// <summary>
+    /// Records the queue a newly created proxy belongs to. A proxy created by a
+    /// request inherits its creator's queue inside libwayland without any
+    /// managed call, so where the effective queue can be read back it is, and
+    /// the answer is authoritative. Older libwayland cannot be asked, and falls
+    /// back to the queue of whatever created the proxy.
+    /// </summary>
+    private void SyncQueue(WlEventQueue? inherited)
+    {
+        TrackQueue(HasGetQueue
+            ? WlEventQueue.FromHandle((nint)LibWaylandClient.wl_proxy_get_queue((wl_proxy*)_handle))
+            : inherited);
+    }
 
     private void TrackQueue(WlEventQueue? queue)
     {
@@ -271,7 +282,8 @@ public abstract unsafe class WlProxy : IDisposable
                 throw new WaylandException($"{Spec.Name}@{Id}: request opcode {opcode} failed to create a '{iface.Name}' object.");
             }
 
-            return CreateWrapped(iface, (nint)result, Display);
+            // The created object inherits this proxy's queue inside libwayland.
+            return CreateWrapped(iface, (nint)result, Display, _queue);
         }
     }
 
@@ -280,10 +292,15 @@ public abstract unsafe class WlProxy : IDisposable
     /// object-argument decoding, and installs the event dispatcher. This is the
     /// single path for real proxies; wrappers deliberately skip all three.
     /// </summary>
-    internal static WlProxy CreateWrapped(WlInterfaceSpec iface, nint handle, WlDisplay display)
+    /// <remarks>
+    /// <c>inherited</c> is the queue the new proxy was born on, used only where
+    /// libwayland is too old to be asked for the effective one.
+    /// </remarks>
+    internal static WlProxy CreateWrapped(
+        WlInterfaceSpec iface, nint handle, WlDisplay display, WlEventQueue? inherited = null)
     {
         var proxy = iface.CreateProxy(handle, display);
-        proxy.Register();
+        proxy.Register(inherited);
         proxy.AttachDispatcher();
         return proxy;
     }
@@ -292,10 +309,10 @@ public abstract unsafe class WlProxy : IDisposable
     /// Publishes the proxy for object-argument decoding and records the queue
     /// libwayland gave it.
     /// </summary>
-    internal void Register()
+    internal void Register(WlEventQueue? inherited = null)
     {
         Owned[_handle] = this;
-        SyncQueueFromNative();
+        SyncQueue(inherited);
     }
 
     /// <summary>
@@ -381,7 +398,7 @@ public abstract unsafe class WlProxy : IDisposable
 
     /// <summary>Wraps the server-created proxy of a <c>new_id</c> event argument.</summary>
     protected WlProxy WrapNewProxy(WlArg arg, WlInterfaceSpec iface) =>
-        CreateWrapped(iface, arg.Ptr, Display);
+        CreateWrapped(iface, arg.Ptr, Display, _queue);
 
     protected static string? GetString(WlArg arg) => Marshal.PtrToStringUTF8(arg.Ptr);
 

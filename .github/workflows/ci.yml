@@ -36,9 +36,16 @@ jobs:
       - name: Build libwayland from the submodule
         run: eng/build-wayland.sh
 
+      # The oldest libwayland the bindings claim to work on. Pinned rather than
+      # taken from the runner image, so the floor is a decision in this repo and
+      # not an accident of what Ubuntu happens to package this month.
+      - name: Build the oldest supported libwayland
+        run: eng/build-wayland.sh --version 1.22.0
+
       - name: Report libwayland versions
         run: |
           sed -n "s/^\s*version: '\(.*\)',$/submodule:    \1/p" external/wayland/meson.build | head -1
+          echo "floor:        1.22.0"
           dpkg-query -W -f='distribution: ${Version}\n' libwayland-server0
 
       - name: Build
@@ -46,15 +53,27 @@ jobs:
 
       # The submodule is the version Native/generated/ was produced from, so it
       # is the one the bindings are actually written against.
+      #
+      # WAYLANDSHARPEST_REQUIRE_LIBWAYLAND makes the run fail if it did not get
+      # that library: a bad LD_LIBRARY_PATH otherwise falls back to the system
+      # copy in silence, and the version-gated tests just skip.
       - name: Test (submodule libwayland)
         run: dotnet test -c Release --no-build
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/artifacts/wayland/lib
+          WAYLANDSHARPEST_REQUIRE_LIBWAYLAND: "1.26"
 
-      # Entry points newer than the distribution's libwayland are reached behind
-      # a runtime probe, and their tests skip here. Running the suite a second
-      # time is what keeps those fallbacks honest -- and this is the libwayland
-      # most consumers will actually have.
+      # Everything newer than the floor is reached behind a runtime probe, and
+      # those tests skip here. This run is what keeps the probes honest: calling
+      # a too-new symbol unconditionally is invisible on a modern libwayland and
+      # breaks the binding outright on an older one.
+      - name: Test (oldest supported libwayland)
+        run: dotnet test -c Release --no-build
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/artifacts/wayland-1.22.0/lib
+
+      # And once against the runner's own packages, which is what a consumer
+      # installing from apt actually links.
       - name: Test (distribution libwayland)
         run: dotnet test -c Release --no-build
 

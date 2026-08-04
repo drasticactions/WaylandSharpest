@@ -64,9 +64,12 @@ public sealed unsafe class WlEventQueue : IDisposable
         }
 
         _handle = (nint)queue;
-        Name = name is null || !HasNamedQueues
+
+        // wl_event_queue_get_name arrived with named queues, so it cannot be
+        // called to discover that naming is unsupported.
+        Name = HasNamedQueues
             ? Marshal.PtrToStringUTF8((nint)LibWaylandClient.wl_event_queue_get_name(queue))
-            : name;
+            : null;
         Owned[_handle] = this;
     }
 
