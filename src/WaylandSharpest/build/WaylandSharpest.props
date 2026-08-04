@@ -2,6 +2,12 @@
 
   <PropertyGroup>
     <EnableDefaultWaylandProtocolItems Condition="'$(EnableDefaultWaylandProtocolItems)' == ''">true</EnableDefaultWaylandProtocolItems>
+
+    <!-- Generated requests and events check the object's negotiated version
+         before marshalling and throw WaylandVersionException rather than
+         putting an undecodable message on the wire. Set to false to drop the
+         per-call branch; the Supports* predicates are emitted either way. -->
+    <WaylandEmitVersionGuards Condition="'$(WaylandEmitVersionGuards)' == ''">true</WaylandEmitVersionGuards>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(EnableDefaultWaylandProtocolItems)' == 'true'">

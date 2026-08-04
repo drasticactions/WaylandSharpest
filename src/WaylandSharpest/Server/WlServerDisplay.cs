@@ -88,6 +88,14 @@ public sealed class WlServerDisplay : IDisposable
     /// </summary>
     public void SetGlobalFilter(GlobalFilter? filter) => _impl.SetGlobalFilter(filter);
 
+    /// <summary>
+    /// Logs every protocol message crossing this display — the structured form
+    /// of <c>WAYLAND_DEBUG=1</c>. The callback runs inline on the dispatch
+    /// thread, so keep it cheap and do not call back into the protocol from it.
+    /// Dispose the returned registration to stop logging.
+    /// </summary>
+    public IDisposable AddProtocolLogger(WlProtocolLogger logger) => _impl.AddProtocolLogger(logger);
+
     /// <summary>Publishes a global; <paramref name="onBind"/> is invoked when a client binds it.</summary>
     public WlGlobal CreateGlobal(WlInterfaceSpec iface, int version, WlGlobal.BindHandler onBind) =>
         new(this, iface, version, onBind);

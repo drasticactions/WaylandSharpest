@@ -56,6 +56,14 @@ public interface IWlDisplay : IDisposable
         get => throw new NotSupportedException($"{GetType().Name} does not report client creation.");
         set => throw new NotSupportedException($"{GetType().Name} does not report client creation.");
     }
+
+    /// <summary>
+    /// Logs every protocol message crossing this display until the returned
+    /// registration is disposed.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The transport has no protocol logging.</exception>
+    IDisposable AddProtocolLogger(WlProtocolLogger logger) =>
+        throw new NotSupportedException($"{GetType().Name} does not support protocol logging.");
 }
 
 /// <summary>Transport half of a <see cref="WlEventLoop"/>.</summary>

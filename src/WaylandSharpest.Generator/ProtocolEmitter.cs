@@ -37,11 +37,16 @@ namespace WaylandSharpest.Generator
 
         private readonly IReadOnlyDictionary<string, InterfaceRef> _interfaces;
         private readonly Action<string> _reportUnresolved;
+        private readonly bool _emitVersionGuards;
 
-        public ProtocolEmitter(IReadOnlyDictionary<string, InterfaceRef> interfaces, Action<string> reportUnresolved)
+        public ProtocolEmitter(
+            IReadOnlyDictionary<string, InterfaceRef> interfaces,
+            Action<string> reportUnresolved,
+            bool emitVersionGuards = true)
         {
             _interfaces = interfaces;
             _reportUnresolved = reportUnresolved;
+            _emitVersionGuards = emitVersionGuards;
         }
 
         public string Emit(ProtocolModel protocol)
@@ -104,6 +109,73 @@ namespace WaylandSharpest.Generator
             return target is null ? null : $"{target.ProxyFqn}.{NameUtils.Pascal(enumName)}";
         }
 
+        /// <summary>
+        /// Emits the <c>Supports*</c> predicate for a message introduced after
+        /// version 1 and returns its name, or null when the message is always
+        /// available. The name is reserved in <paramref name="used"/> so the
+        /// collision handling for member names stays intact.
+        /// </summary>
+        private static string? EmitVersionPredicate(
+            CodeWriter w, InterfaceModel iface, MessageModel message, string memberName, HashSet<string> used)
+        {
+            if (message.Since <= 1)
+            {
+                return null;
+            }
+
+            var name = AdjustName("Supports" + memberName, used, "_");
+            w.Doc($"Whether this object's negotiated version supports '{message.Name}' (since {message.Since}).");
+            w.Line($"public bool {name} => Version >= {message.Since}u;");
+            w.Line();
+            return name;
+        }
+
+        /// <summary>Emits the guard that keeps a too-new message off the wire.</summary>
+        private void EmitVersionGuard(CodeWriter w, InterfaceModel iface, MessageModel message)
+        {
+            if (!_emitVersionGuards || message.Since <= 1)
+            {
+                return;
+            }
+
+            w.Open($"if (Version < {message.Since}u)");
+            w.Line($"throw new {Runtime}.WaylandVersionException(\"{iface.Name}\", \"{message.Name}\", {message.Since}u, Version);");
+            w.Close();
+            w.Line();
+        }
+
+        /// <summary>Appends the availability note protocol XML carries as <c>since</c>.</summary>
+        private static string? WithSince(string? summary, int since)
+        {
+            if (since <= 1)
+            {
+                return summary;
+            }
+
+            var note = $"Available since version {since}.";
+            if (string.IsNullOrWhiteSpace(summary))
+            {
+                return note;
+            }
+
+            // Protocol summaries are sentence fragments without terminators, so
+            // the note needs one supplied or the two run together.
+            var text = summary!.Trim();
+            var terminated = ".?!:".IndexOf(text[text.Length - 1]) >= 0;
+            return terminated ? $"{text} {note}" : $"{text}. {note}";
+        }
+
+        private static string? EntrySummary(EnumEntryModel entry) => WithSince(entry.Summary, entry.Since);
+
+        /// <summary>Emits <c>[Obsolete]</c> for a message the protocol marks deprecated.</summary>
+        private static void EmitDeprecation(CodeWriter w, MessageModel message)
+        {
+            if (message.DeprecatedSince is { } deprecated)
+            {
+                w.Line($"[global::System.Obsolete(\"Deprecated since version {deprecated}.\")]");
+            }
+        }
+
         private static string AdjustName(string candidate, HashSet<string> used, string suffix)
         {
             var name = candidate;
@@ -122,7 +194,7 @@ namespace WaylandSharpest.Generator
             var cls = NameUtils.Pascal(iface.Name);
             var clsFqn = ClassFqnOf(iface);
 
-            w.Doc(iface.Summary is null ? $"Client proxy for the '{iface.Name}' interface." : $"{iface.Summary} (client proxy for '{iface.Name}').");
+            w.Doc(iface.Summary is null ? $"Client proxy for the '{iface.Name}' interface." : $"{iface.Summary} (client proxy for '{iface.Name}').", iface.Description);
             w.Line($"[{Runtime}.WaylandProxy(\"{iface.Name}\")]");
             w.Open($"public sealed partial class {cls} : {ProxyBase}, {Runtime}.IWaylandObject<{cls}>");
 
@@ -155,8 +227,28 @@ namespace WaylandSharpest.Generator
             if (iface.Destructor is { } destructor)
             {
                 w.Line();
-                w.Doc($"Routes disposal through the '{destructor.Name}' destructor request.");
-                w.Line($"protected override void DisposeCore() => {methodNames[destructor]}();");
+                if (destructor.Since > 1)
+                {
+                    // The destructor request itself may post-date the negotiated
+                    // version (wl_compositor.release is since 7). Sending it
+                    // anyway is a protocol violation, so an older object falls
+                    // back to destroying the proxy without notifying the server —
+                    // which is what wayland-scanner's separate _destroy is for.
+                    w.Doc($"Routes disposal through the '{destructor.Name}' destructor request where the negotiated version has it.");
+                    w.Open("protected override void DisposeCore()");
+                    w.Open($"if (Version >= {destructor.Since}u)");
+                    w.Line($"{methodNames[destructor]}();");
+                    w.Close();
+                    w.Open("else");
+                    w.Line("base.DisposeCore();");
+                    w.Close();
+                    w.Close();
+                }
+                else
+                {
+                    w.Doc($"Routes disposal through the '{destructor.Name}' destructor request.");
+                    w.Line($"protected override void DisposeCore() => {methodNames[destructor]}();");
+                }
             }
 
             var eventNames = new Dictionary<MessageModel, string>();
@@ -231,7 +323,7 @@ namespace WaylandSharpest.Generator
         {
             var name = AdjustName(NameUtils.Pascal(e.Name), used, "Enum");
             var backing = e.NeedsUnsignedBacking ? "uint" : "int";
-            w.Doc(e.Summary);
+            w.Doc(e.Summary, e.Description);
             if (e.IsBitfield)
             {
                 w.Line("[global::System.Flags]");
@@ -242,7 +334,7 @@ namespace WaylandSharpest.Generator
             foreach (var entry in e.Entries)
             {
                 var memberName = AdjustName(NameUtils.Pascal(entry.Name), memberNames, "_");
-                w.Doc(entry.Summary);
+                w.Doc(EntrySummary(entry), entry.Description);
                 var literal = e.NeedsUnsignedBacking ? $"{(uint)entry.Value}u" : entry.Value.ToString();
                 w.Line($"{memberName} = {literal},");
             }
@@ -269,15 +361,15 @@ namespace WaylandSharpest.Generator
             var methodName = AdjustName(NameUtils.Pascal(request.Name), used, "_");
             var plan = BuildClientArgPlan(iface, request, clsFqn, forProxy: true);
 
-            var doc = request.Summary ?? $"Sends the '{request.Name}' request.";
-            if (request.Since > 1)
-            {
-                doc += $" Available since version {request.Since}.";
-            }
+            var doc = WithSince(request.Summary ?? $"Sends the '{request.Name}' request.", request.Since);
 
-            w.Doc(doc);
+            EmitVersionPredicate(w, iface, request, methodName, used);
+
+            w.Doc(doc, request.Description);
+            EmitDeprecation(w, request);
             var returnType = plan.ReturnType ?? "void";
             w.Open($"public {returnType} {methodName}({string.Join(", ", plan.Params)})");
+            EmitVersionGuard(w, iface, request);
             EmitMarshalBody(w, request, plan);
             w.Close();
 
@@ -489,13 +581,10 @@ namespace WaylandSharpest.Generator
 
             EmitEventArgsStruct(w, argsStruct, evt, plan);
             w.Line();
-            var doc = evt.Summary ?? $"Raised for the '{evt.Name}' event.";
-            if (evt.Since > 1)
-            {
-                doc += $" Available since version {evt.Since}.";
-            }
+            var doc = WithSince(evt.Summary ?? $"Raised for the '{evt.Name}' event.", evt.Since);
 
-            w.Doc(doc);
+            w.Doc(doc, evt.Description);
+            EmitDeprecation(w, evt);
             w.Line($"public event global::System.EventHandler<{argsStruct}>? {evtName};");
             return evtName;
         }
@@ -651,12 +740,35 @@ namespace WaylandSharpest.Generator
             return plan;
         }
 
+        /// <summary>
+        /// Suppresses the obsolete-member warning around generated dispatch: the
+        /// switch has to raise the event for a deprecated message like any
+        /// other, and consumers build with warnings as errors.
+        /// </summary>
+        private static void OpenDeprecationSuppression(CodeWriter w, IEnumerable<MessageModel> messages)
+        {
+            if (messages.Any(m => m.DeprecatedSince is not null))
+            {
+                w.Line("#pragma warning disable CS0618");
+            }
+        }
+
+        private static void CloseDeprecationSuppression(CodeWriter w, IEnumerable<MessageModel> messages)
+        {
+            if (messages.Any(m => m.DeprecatedSince is not null))
+            {
+                w.Line("#pragma warning restore CS0618");
+            }
+        }
+
         private void EmitProxyDispatch(CodeWriter w, InterfaceModel iface, Dictionary<MessageModel, string> eventNames, string clsFqn)
         {
+            OpenDeprecationSuppression(w, iface.Events);
             w.Open($"protected override void HandleEvent(uint opcode, {ArgSpan} args)");
             if (iface.Events.Count == 0)
             {
                 w.Close();
+                CloseDeprecationSuppression(w, iface.Events);
                 return;
             }
 
@@ -673,6 +785,7 @@ namespace WaylandSharpest.Generator
 
             w.Close();
             w.Close();
+            CloseDeprecationSuppression(w, iface.Events);
         }
 
         // ---- resource (server) side ----
@@ -682,7 +795,7 @@ namespace WaylandSharpest.Generator
             var proxyCls = NameUtils.Pascal(iface.Name);
             var cls = proxyCls + "Resource";
 
-            w.Doc(iface.Summary is null ? $"Server resource for the '{iface.Name}' interface." : $"{iface.Summary} (server resource for '{iface.Name}').");
+            w.Doc(iface.Summary is null ? $"Server resource for the '{iface.Name}' interface." : $"{iface.Summary} (server resource for '{iface.Name}').", iface.Description);
             w.Line($"[{Runtime}.WaylandResource(\"{iface.Name}\")]");
             w.Open($"public sealed partial class {cls} : {ResourceBase}");
 
@@ -710,13 +823,14 @@ namespace WaylandSharpest.Generator
                 var plan = BuildEventPlan(iface, request, clsFqn, forProxy: false);
                 EmitEventArgsStruct(w, evtName + "EventArgs", request, plan);
                 w.Line();
-                var doc = request.Summary ?? $"Raised when the client sends the '{request.Name}' request.";
+                var doc = WithSince(request.Summary ?? $"Raised when the client sends the '{request.Name}' request.", request.Since);
                 if (request.IsDestructor)
                 {
                     doc += " The resource is destroyed automatically after this event.";
                 }
 
-                w.Doc(doc);
+                w.Doc(doc, request.Description);
+                EmitDeprecation(w, request);
                 w.Line($"public event global::System.EventHandler<{evtName}EventArgs>? {evtName};");
             }
 
@@ -726,19 +840,20 @@ namespace WaylandSharpest.Generator
                 w.Line();
                 var methodName = AdjustName("Send" + NameUtils.Pascal(evt.Name), used, "_");
                 var plan = BuildClientArgPlan(iface, evt, clsFqn, forProxy: false);
-                var doc = evt.Summary ?? $"Sends the '{evt.Name}' event to the client.";
-                if (evt.Since > 1)
-                {
-                    doc += $" Available since version {evt.Since}.";
-                }
+                var doc = WithSince(evt.Summary ?? $"Sends the '{evt.Name}' event to the client.", evt.Since);
 
-                w.Doc(doc);
+                EmitVersionPredicate(w, iface, evt, methodName, used);
+
+                w.Doc(doc, evt.Description);
+                EmitDeprecation(w, evt);
                 w.Open($"public void {methodName}({string.Join(", ", plan.Params)})");
+                EmitVersionGuard(w, iface, evt);
                 EmitPostBody(w, evt, plan);
                 w.Close();
             }
 
             w.Line();
+            OpenDeprecationSuppression(w, iface.Requests);
             w.Open($"protected override void HandleRequest(uint opcode, {ArgSpan} args)");
             if (iface.Requests.Count > 0)
             {
@@ -762,6 +877,7 @@ namespace WaylandSharpest.Generator
             }
 
             w.Close();
+            CloseDeprecationSuppression(w, iface.Requests);
             w.Close();
         }
 

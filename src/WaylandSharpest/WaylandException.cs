@@ -35,3 +35,33 @@ public sealed class WaylandProtocolException : WaylandException
     /// <summary>Id of the object that generated the error, if known.</summary>
     public uint ObjectId { get; }
 }
+
+/// <summary>
+/// Thrown when a request or event is used on an object whose negotiated version
+/// predates it. Sending it anyway would be a wire violation libwayland does not
+/// catch: the peer fails to decode the message and the connection dies with no
+/// indication of the real cause.
+/// </summary>
+public sealed class WaylandVersionException : WaylandException
+{
+    public WaylandVersionException(string interfaceName, string messageName, uint requiredVersion, uint actualVersion)
+        : base($"'{interfaceName}.{messageName}' requires interface version {requiredVersion}, but this object negotiated version {actualVersion}.")
+    {
+        InterfaceName = interfaceName;
+        MessageName = messageName;
+        RequiredVersion = requiredVersion;
+        ActualVersion = actualVersion;
+    }
+
+    /// <summary>The interface the message belongs to.</summary>
+    public string InterfaceName { get; }
+
+    /// <summary>The request or event that was used.</summary>
+    public string MessageName { get; }
+
+    /// <summary>The interface version the message was introduced in.</summary>
+    public uint RequiredVersion { get; }
+
+    /// <summary>The version this object actually negotiated.</summary>
+    public uint ActualVersion { get; }
+}

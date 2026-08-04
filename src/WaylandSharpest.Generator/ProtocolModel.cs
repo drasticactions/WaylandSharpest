@@ -36,11 +36,12 @@ namespace WaylandSharpest.Generator
 
     internal sealed class InterfaceModel
     {
-        public InterfaceModel(string name, int version, string? summary)
+        public InterfaceModel(string name, int version, string? summary, string? description)
         {
             Name = name;
             Version = version;
             Summary = summary;
+            Description = description;
         }
 
         public string Name { get; }
@@ -48,6 +49,9 @@ namespace WaylandSharpest.Generator
         public int Version { get; }
 
         public string? Summary { get; }
+
+        /// <summary>The normative prose in the <c>&lt;description&gt;</c> body.</summary>
+        public string? Description { get; }
 
         public List<MessageModel> Requests { get; } = new List<MessageModel>();
 
@@ -67,13 +71,22 @@ namespace WaylandSharpest.Generator
 
     internal sealed class MessageModel
     {
-        public MessageModel(string name, int opcode, int since, bool isDestructor, string? summary)
+        public MessageModel(
+            string name,
+            int opcode,
+            int since,
+            int? deprecatedSince,
+            bool isDestructor,
+            string? summary,
+            string? description)
         {
             Name = name;
             Opcode = opcode;
             Since = since;
+            DeprecatedSince = deprecatedSince;
             IsDestructor = isDestructor;
             Summary = summary;
+            Description = description;
         }
 
         public string Name { get; }
@@ -82,9 +95,15 @@ namespace WaylandSharpest.Generator
 
         public int Since { get; }
 
+        /// <summary>The interface version this message was deprecated in, when the XML says so.</summary>
+        public int? DeprecatedSince { get; }
+
         public bool IsDestructor { get; }
 
         public string? Summary { get; }
+
+        /// <summary>The normative prose in the <c>&lt;description&gt;</c> body.</summary>
+        public string? Description { get; }
 
         public List<ArgModel> Args { get; } = new List<ArgModel>();
 
@@ -181,11 +200,12 @@ namespace WaylandSharpest.Generator
 
     internal sealed class EnumModel
     {
-        public EnumModel(string name, bool isBitfield, string? summary)
+        public EnumModel(string name, bool isBitfield, string? summary, string? description)
         {
             Name = name;
             IsBitfield = isBitfield;
             Summary = summary;
+            Description = description;
         }
 
         public string Name { get; }
@@ -193,6 +213,9 @@ namespace WaylandSharpest.Generator
         public bool IsBitfield { get; }
 
         public string? Summary { get; }
+
+        /// <summary>The normative prose in the <c>&lt;description&gt;</c> body.</summary>
+        public string? Description { get; }
 
         public List<EnumEntryModel> Entries { get; } = new List<EnumEntryModel>();
 
@@ -202,18 +225,26 @@ namespace WaylandSharpest.Generator
 
     internal sealed class EnumEntryModel
     {
-        public EnumEntryModel(string name, long value, string? summary)
+        public EnumEntryModel(string name, long value, int since, string? summary, string? description)
         {
             Name = name;
             Value = value;
+            Since = since;
             Summary = summary;
+            Description = description;
         }
 
         public string Name { get; }
 
         public long Value { get; }
 
+        /// <summary>The interface version this entry was introduced in.</summary>
+        public int Since { get; }
+
         public string? Summary { get; }
+
+        /// <summary>The normative prose in the <c>&lt;description&gt;</c> body.</summary>
+        public string? Description { get; }
     }
 
     internal static class ProtocolParser
@@ -258,7 +289,7 @@ namespace WaylandSharpest.Generator
             var name = (string?)element.Attribute("name")
                 ?? throw new ProtocolParseException("<interface> element is missing the 'name' attribute.");
             var version = (int?)element.Attribute("version") ?? 1;
-            var iface = new InterfaceModel(name, version, GetSummary(element));
+            var iface = new InterfaceModel(name, version, GetSummary(element), GetDescription(element));
 
             var opcode = 0;
             foreach (var request in element.Elements("request"))
@@ -286,7 +317,14 @@ namespace WaylandSharpest.Generator
                 ?? throw new ProtocolParseException($"A message of interface '{interfaceName}' is missing the 'name' attribute.");
             var since = (int?)element.Attribute("since") ?? 1;
             var isDestructor = (string?)element.Attribute("type") == "destructor";
-            var message = new MessageModel(name, opcode, since, isDestructor, GetSummary(element));
+            var message = new MessageModel(
+                name,
+                opcode,
+                since,
+                (int?)element.Attribute("deprecated-since"),
+                isDestructor,
+                GetSummary(element),
+                GetDescription(element));
 
             foreach (var arg in element.Elements("arg"))
             {
@@ -323,7 +361,11 @@ namespace WaylandSharpest.Generator
         {
             var name = (string?)element.Attribute("name")
                 ?? throw new ProtocolParseException($"An enum of interface '{interfaceName}' is missing the 'name' attribute.");
-            var model = new EnumModel(name, (bool?)element.Attribute("bitfield") ?? false, GetSummary(element));
+            var model = new EnumModel(
+                name,
+                (bool?)element.Attribute("bitfield") ?? false,
+                GetSummary(element),
+                GetDescription(element));
 
             foreach (var entry in element.Elements("entry"))
             {
@@ -331,7 +373,12 @@ namespace WaylandSharpest.Generator
                     ?? throw new ProtocolParseException($"An entry of enum '{interfaceName}.{name}' is missing the 'name' attribute.");
                 var valueText = (string?)entry.Attribute("value")
                     ?? throw new ProtocolParseException($"Entry '{entryName}' of enum '{interfaceName}.{name}' is missing the 'value' attribute.");
-                model.Entries.Add(new EnumEntryModel(entryName, ParseValue(valueText, interfaceName, name), (string?)entry.Attribute("summary")));
+                model.Entries.Add(new EnumEntryModel(
+                    entryName,
+                    ParseValue(valueText, interfaceName, name),
+                    (int?)entry.Attribute("since") ?? 1,
+                    (string?)entry.Attribute("summary"),
+                    GetDescription(entry)));
             }
 
             return model;
@@ -354,6 +401,34 @@ namespace WaylandSharpest.Generator
         private static string? GetSummary(XElement element) =>
             (string?)element.Element("description")?.Attribute("summary")
             ?? (string?)element.Attribute("summary");
+
+        /// <summary>
+        /// The prose body of a <c>&lt;description&gt;</c>, with the XML's
+        /// indentation stripped but its line breaks kept: protocol descriptions
+        /// are hard-wrapped, and re-flowing them into one line loses the
+        /// paragraph structure that makes them readable.
+        /// </summary>
+        private static string? GetDescription(XElement element)
+        {
+            var body = element.Element("description")?.Value;
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                return null;
+            }
+
+            var lines = body!.Replace("\r\n", "\n").Split('\n').Select(line => line.Trim()).ToList();
+            while (lines.Count > 0 && lines[0].Length == 0)
+            {
+                lines.RemoveAt(0);
+            }
+
+            while (lines.Count > 0 && lines[lines.Count - 1].Length == 0)
+            {
+                lines.RemoveAt(lines.Count - 1);
+            }
+
+            return lines.Count == 0 ? null : string.Join("\n", lines);
+        }
     }
 
     internal sealed class ProtocolParseException : Exception

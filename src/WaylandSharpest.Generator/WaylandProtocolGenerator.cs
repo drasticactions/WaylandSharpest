@@ -39,6 +39,13 @@ namespace WaylandSharpest.Generator
 
         public void Initialize(IncrementalGeneratorInitializationContext context)
         {
+            var emitVersionGuards = context.AnalyzerConfigOptionsProvider
+                .Select(static (provider, _) =>
+                {
+                    provider.GlobalOptions.TryGetValue("build_property.WaylandEmitVersionGuards", out var value);
+                    return !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase);
+                });
+
             var xmlFiles = context.AdditionalTextsProvider
                 .Where(static file => file.Path.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
                 .Combine(context.AnalyzerConfigOptionsProvider)
@@ -66,8 +73,9 @@ namespace WaylandSharpest.Generator
                 .Select(static (compilation, cancellationToken) => BuildReferenceMap(compilation, cancellationToken));
 
             context.RegisterSourceOutput(
-                xmlFiles.Combine(referencedInterfaces),
-                static (productionContext, pair) => Execute(productionContext, pair.Left, pair.Right));
+                xmlFiles.Combine(referencedInterfaces).Combine(emitVersionGuards),
+                static (productionContext, pair) =>
+                    Execute(productionContext, pair.Left.Left, pair.Left.Right, pair.Right));
         }
 
         /// <summary>
@@ -146,7 +154,8 @@ namespace WaylandSharpest.Generator
         private static void Execute(
             SourceProductionContext context,
             ImmutableArray<XmlInput> inputs,
-            ImmutableDictionary<string, (string ProxyFqn, string? ResourceFqn)> referenced)
+            ImmutableDictionary<string, (string ProxyFqn, string? ResourceFqn)> referenced,
+            bool emitVersionGuards)
         {
             var protocols = new List<(ProtocolModel Protocol, string Path)>();
             foreach (var input in inputs)
@@ -199,13 +208,16 @@ namespace WaylandSharpest.Generator
             }
 
             var reported = new HashSet<string>(StringComparer.Ordinal);
-            var emitter = new ProtocolEmitter(map, message =>
-            {
-                if (reported.Add(message))
+            var emitter = new ProtocolEmitter(
+                map,
+                message =>
                 {
-                    context.ReportDiagnostic(Diagnostic.Create(UnresolvedReference, Location.None, message));
-                }
-            });
+                    if (reported.Add(message))
+                    {
+                        context.ReportDiagnostic(Diagnostic.Create(UnresolvedReference, Location.None, message));
+                    }
+                },
+                emitVersionGuards);
 
             var usedHintNames = new HashSet<string>(StringComparer.Ordinal);
             foreach (var (protocol, path) in protocols)

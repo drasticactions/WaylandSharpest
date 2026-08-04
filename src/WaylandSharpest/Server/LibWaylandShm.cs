@@ -119,6 +119,44 @@ public static unsafe class WlForeignResource
     /// </summary>
     public static WlForeignDestroyListener AddDestroyListener(nint resourceHandle, Action callback) =>
         new(resourceHandle, callback);
+
+    /// <summary>The resource's interface name, e.g. <c>wl_surface</c>.</summary>
+    public static string GetInterfaceName(nint resourceHandle) =>
+        Marshal.PtrToStringUTF8((nint)LibWaylandServer.wl_resource_get_class((wl_resource*)resourceHandle))
+        ?? string.Empty;
+
+    /// <summary>
+    /// Whether the resource implements <paramref name="spec"/>, by interface
+    /// name — which is the check that survives crossing a library boundary.
+    /// </summary>
+    /// <remarks>
+    /// This is the interface half of <c>wl_resource_instance_of</c>, and only
+    /// the interface half. That function also requires the resource's
+    /// implementation pointer to equal one the caller supplies, which can never
+    /// hold for a resource another library created — precisely the population
+    /// this class exists for. The interface half is name-based in libwayland
+    /// (<c>wl_interface_equal</c> falls back to <c>strcmp</c> when the pointers
+    /// differ), so it does hold across libraries, and it is what a caller
+    /// bridging to wlroots actually needs to know.
+    /// </remarks>
+    public static bool IsInstanceOf(nint resourceHandle, WlInterfaceSpec spec)
+    {
+        ArgumentNullException.ThrowIfNull(spec);
+        return GetInterfaceName(resourceHandle) == spec.Name;
+    }
+
+    /// <summary>
+    /// The client owning the resource, interned so identity matches every other
+    /// API, or <c>null</c> if the resource has no client.
+    /// </summary>
+    public static WlClient? GetClient(WlServerDisplay display, nint resourceHandle)
+    {
+        ArgumentNullException.ThrowIfNull(display);
+        var client = LibWaylandServer.wl_resource_get_client((wl_resource*)resourceHandle);
+        return client == null || display.Impl is not LibWaylandDisplay impl
+            ? null
+            : impl.GetOrCreateClient((nint)client);
+    }
 }
 
 /// <summary>A destroy-listener registration on a foreign resource.</summary>

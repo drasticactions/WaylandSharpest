@@ -3,6 +3,7 @@
   <ItemGroup>
     <AdditionalFiles Include="@(WaylandProtocol)" />
     <CompilerVisibleItemMetadata Include="AdditionalFiles" MetadataName="WaylandNamespace" />
+    <CompilerVisibleProperty Include="WaylandEmitVersionGuards" />
   </ItemGroup>
 
 </Project>

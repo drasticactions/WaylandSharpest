@@ -198,6 +198,13 @@ internal sealed unsafe class LibWaylandDisplay : IWlDisplay
         }
     }
 
+    public IDisposable AddProtocolLogger(WlProtocolLogger logger)
+    {
+        ArgumentNullException.ThrowIfNull(logger);
+        ObjectDisposedException.ThrowIf(_handle == 0, this);
+        return new LibWaylandProtocolLogger(this, logger);
+    }
+
     public IReadOnlyList<WlClient> GetClients()
     {
         var clients = new List<WlClient>();
@@ -268,6 +275,65 @@ internal sealed unsafe class LibWaylandDisplay : IWlDisplay
         }
 
         NativeListener.Free((NativeListener*)listener);
+    }
+}
+
+internal sealed unsafe class LibWaylandProtocolLogger : IDisposable
+{
+    private readonly LibWaylandDisplay _display;
+    private readonly WlProtocolLogger _logger;
+    private nint _handle;
+    private GCHandle _selfHandle;
+
+    internal LibWaylandProtocolLogger(LibWaylandDisplay display, WlProtocolLogger logger)
+    {
+        _display = display;
+        _logger = logger;
+        _selfHandle = GCHandle.Alloc(this);
+        var handle = LibWaylandServer.wl_display_add_protocol_logger(
+            (wl_display*)display.RawHandle, &LogThunk, (void*)GCHandle.ToIntPtr(_selfHandle));
+        if (handle == null)
+        {
+            _selfHandle.Free();
+            throw new WaylandException("wl_display_add_protocol_logger failed.");
+        }
+
+        _handle = (nint)handle;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void LogThunk(void* data, wl_protocol_logger_type type, wl_protocol_logger_message* message)
+    {
+        if (GCHandle.FromIntPtr((nint)data).Target is not LibWaylandProtocolLogger self)
+        {
+            return;
+        }
+
+        try
+        {
+            var direction = type == wl_protocol_logger_type.WL_PROTOCOL_LOGGER_REQUEST
+                ? WlProtocolMessageDirection.Request
+                : WlProtocolMessageDirection.Event;
+            var logged = new WlProtocolMessage(direction, message);
+            self._logger(in logged);
+        }
+        catch (Exception ex)
+        {
+            // A throwing logger must not unwind into libwayland.
+            self._display.Owner.CaptureDispatchException(ex);
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_handle == 0)
+        {
+            return;
+        }
+
+        LibWaylandServer.wl_protocol_logger_destroy((wl_protocol_logger*)_handle);
+        _handle = 0;
+        _selfHandle.Free();
     }
 }
 

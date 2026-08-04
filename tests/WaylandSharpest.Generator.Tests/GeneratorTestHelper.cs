@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
 using WaylandSharpest.Generator;
 
@@ -13,10 +14,22 @@ internal static class GeneratorTestHelper
 
     public static (GeneratorDriverRunResult Result, Compilation Output) Run(
         params (string Path, string Text)[] files) =>
-        Run(referenceRuntime: true, files);
+        Run(referenceRuntime: true, globalOptions: null, files);
 
     public static (GeneratorDriverRunResult Result, Compilation Output) Run(
         bool referenceRuntime,
+        params (string Path, string Text)[] files) =>
+        Run(referenceRuntime, globalOptions: null, files);
+
+    /// <summary>Runs the generator with MSBuild properties visible as <c>build_property.*</c>.</summary>
+    public static (GeneratorDriverRunResult Result, Compilation Output) RunWithOptions(
+        Dictionary<string, string> globalOptions,
+        params (string Path, string Text)[] files) =>
+        Run(referenceRuntime: true, globalOptions, files);
+
+    private static (GeneratorDriverRunResult Result, Compilation Output) Run(
+        bool referenceRuntime,
+        Dictionary<string, string>? globalOptions,
         params (string Path, string Text)[] files)
     {
         var references = TrustedPlatformReferences();
@@ -35,10 +48,28 @@ internal static class GeneratorTestHelper
             .Select(f => (AdditionalText)new InMemoryAdditionalText(f.Path, f.Text))
             .ToImmutableArray();
 
-        GeneratorDriver driver = CSharpGeneratorDriver.Create(new WaylandProtocolGenerator())
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            [new WaylandProtocolGenerator().AsSourceGenerator()],
+            optionsProvider: globalOptions is null ? null : new TestOptionsProvider(globalOptions))
             .AddAdditionalTexts(additionalTexts);
         driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _);
         return (driver.GetRunResult(), outputCompilation);
+    }
+
+    private sealed class TestOptionsProvider(Dictionary<string, string> globalOptions) : AnalyzerConfigOptionsProvider
+    {
+        public override AnalyzerConfigOptions GlobalOptions { get; } = new Options(globalOptions);
+
+        public override AnalyzerConfigOptions GetOptions(SyntaxTree tree) => Options.Empty;
+
+        public override AnalyzerConfigOptions GetOptions(AdditionalText textFile) => Options.Empty;
+
+        private sealed class Options(Dictionary<string, string> values) : AnalyzerConfigOptions
+        {
+            public static readonly Options Empty = new([]);
+
+            public override bool TryGetValue(string key, out string value) => values.TryGetValue(key, out value!);
+        }
     }
 
     private static ImmutableArray<MetadataReference> TrustedPlatformReferences()

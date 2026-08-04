@@ -134,11 +134,39 @@ public sealed class ObjectArgumentTests : LoopbackHarness
             Assert.NotEqual(0, foreignRegion);
             Assert.Null(decodedRegion);
             Assert.Equal(foreignRegion, decodedHandle);
+
+            // The wrapper decodes to null, but the handle is still identifiable
+            // and traceable back to its client.
+            Assert.Equal("wl_region", WlForeignResource.GetInterfaceName(foreignRegion));
+            Assert.True(WlForeignResource.IsInstanceOf(foreignRegion, WlRegion.Interface));
+            Assert.False(WlForeignResource.IsInstanceOf(foreignRegion, WlSurface.Interface));
+            Assert.Same(ServerClient, WlForeignResource.GetClient(Server, foreignRegion));
         }
         finally
         {
             Marshal.FreeHGlobal(foreignUserData);
         }
+    }
+
+    [Fact]
+    public void Owned_resources_answer_the_foreign_accessors_too()
+    {
+        WlSurfaceResource? serverSurface = null;
+        using var global = Server.CreateGlobal(WlCompositor.Interface, 6, (client, version, id) =>
+        {
+            var compositor = new WlCompositorResource(client, version, id);
+            compositor.CreateSurface += (_, e) => serverSurface = new WlSurfaceResource(client, version, e.Id);
+        });
+
+        using var compositor = BindCompositor(global);
+        using var surface = compositor.CreateSurface();
+        PumpToServer();
+
+        Assert.NotNull(serverSurface);
+        var handle = serverSurface!.RawHandle;
+        Assert.Equal("wl_surface", WlForeignResource.GetInterfaceName(handle));
+        Assert.True(WlForeignResource.IsInstanceOf(handle, WlSurface.Interface));
+        Assert.Same(ServerClient, WlForeignResource.GetClient(Server, handle));
     }
 
     [Fact]

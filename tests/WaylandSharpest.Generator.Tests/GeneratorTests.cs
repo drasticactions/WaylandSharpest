@@ -10,10 +10,17 @@ public class GeneratorTests
         <?xml version="1.0" encoding="UTF-8"?>
         <protocol name="sample">
           <interface name="sample_thing" version="3">
-            <description summary="a sample interface for snapshot testing"/>
+            <description summary="a sample interface for snapshot testing">
+              The first paragraph of normative prose, hard-wrapped
+              exactly as protocol XML wraps it.
+
+              A second paragraph, with &lt;angle brackets&gt; and an &amp;
+              ampersand that must survive escaping.
+            </description>
             <enum name="mode">
               <entry name="slow" value="0" summary="slow mode"/>
               <entry name="fast" value="1" summary="fast mode"/>
+              <entry name="turbo" value="2" since="3" summary="turbo mode"/>
             </enum>
             <enum name="flags" bitfield="true">
               <entry name="a" value="1"/>
@@ -29,6 +36,12 @@ public class GeneratorTests
             <request name="give_data">
               <arg name="data" type="array"/>
               <arg name="fd" type="fd"/>
+            </request>
+            <request name="set_label" since="2" deprecated-since="3">
+              <description summary="renames the thing">
+                Superseded by set_mode; kept for older clients.
+              </description>
+              <arg name="label" type="string"/>
             </request>
             <request name="convert" type="destructor">
               <arg name="id" type="new_id" interface="sample_child"/>
@@ -97,6 +110,52 @@ public class GeneratorTests
         Assert.Contains("global::Wayland.WlSurface", text);
         AssertCompiles(output);
     }
+
+    [Fact]
+    public void Version_guards_are_emitted_by_default()
+    {
+        var (_, output) = GeneratorTestHelper.Run(("sample.xml", SampleProtocol));
+
+        var text = GeneratedText(output);
+        Assert.Contains("throw new global::Wayland.WaylandVersionException(\"sample_thing\", \"set_label\", 2u, Version);", text);
+        Assert.Contains("public bool SupportsSetLabel => Version >= 2u;", text);
+        Assert.Contains("public bool SupportsSendSpawned => Version >= 2u;", text);
+    }
+
+    [Fact]
+    public void Version_guards_can_be_turned_off_without_losing_the_predicates()
+    {
+        var (result, output) = GeneratorTestHelper.RunWithOptions(
+            new Dictionary<string, string> { ["build_property.WaylandEmitVersionGuards"] = "false" },
+            ("sample.xml", SampleProtocol));
+
+        Assert.Empty(result.Diagnostics);
+        var text = GeneratedText(output);
+        Assert.DoesNotContain("WaylandVersionException", text);
+
+        // The ability to check survives; only the per-call branch is dropped.
+        Assert.Contains("public bool SupportsSetLabel => Version >= 2u;", text);
+        AssertCompiles(output);
+    }
+
+    [Fact]
+    public void Descriptions_and_deprecation_reach_the_generated_docs()
+    {
+        var (_, output) = GeneratorTestHelper.Run(("sample.xml", SampleProtocol));
+
+        var text = GeneratedText(output);
+        Assert.Contains("/// <remarks>", text);
+
+        // Hard-wrapped prose keeps its line breaks, and XML metacharacters are escaped.
+        Assert.Contains("/// The first paragraph of normative prose, hard-wrapped", text);
+        Assert.Contains("/// exactly as protocol XML wraps it.", text);
+        Assert.Contains("&lt;angle brackets&gt;", text);
+        Assert.Contains("[global::System.Obsolete(\"Deprecated since version 3.\")]", text);
+        Assert.Contains("/// <summary>turbo mode. Available since version 3.</summary>", text);
+    }
+
+    private static string GeneratedText(Compilation output) =>
+        string.Join("\n", output.SyntaxTrees.Select(t => t.ToString()));
 
     [Fact]
     public void Malformed_protocol_reports_diagnostic()

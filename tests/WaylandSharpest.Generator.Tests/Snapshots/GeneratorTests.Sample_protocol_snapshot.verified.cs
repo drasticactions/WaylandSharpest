@@ -6,6 +6,13 @@
 namespace WaylandProtocols
 {
     /// <summary>a sample interface for snapshot testing (client proxy for 'sample_thing').</summary>
+    /// <remarks>
+    /// The first paragraph of normative prose, hard-wrapped
+    /// exactly as protocol XML wraps it.
+    /// <para/>
+    /// A second paragraph, with &lt;angle brackets&gt; and an &amp;
+    /// ampersand that must survive escaping.
+    /// </remarks>
     [global::Wayland.WaylandProxy("sample_thing")]
     public sealed partial class SampleThing : global::Wayland.WlProxy, global::Wayland.IWaylandObject<SampleThing>
     {
@@ -18,6 +25,7 @@ namespace WaylandProtocols
                 new global::Wayland.WlMessageSpec("set_mode", "u", new global::System.Func<global::Wayland.WlInterfaceSpec>?[] { null }),
                 new global::Wayland.WlMessageSpec("make_child", "n?s", new global::System.Func<global::Wayland.WlInterfaceSpec>?[] { static () => global::WaylandProtocols.SampleChild.Interface!, null }),
                 new global::Wayland.WlMessageSpec("give_data", "ah", new global::System.Func<global::Wayland.WlInterfaceSpec>?[] { null, null }),
+                new global::Wayland.WlMessageSpec("set_label", "2s", new global::System.Func<global::Wayland.WlInterfaceSpec>?[] { null }),
                 new global::Wayland.WlMessageSpec("convert", "n", new global::System.Func<global::Wayland.WlInterfaceSpec>?[] { static () => global::WaylandProtocols.SampleChild.Interface! }),
                 new global::Wayland.WlMessageSpec("destroy", "", null),
             },
@@ -40,6 +48,8 @@ namespace WaylandProtocols
             Slow = 0,
             /// <summary>fast mode</summary>
             Fast = 1,
+            /// <summary>turbo mode. Available since version 3.</summary>
+            Turbo = 2,
         }
 
         [global::System.Flags]
@@ -90,17 +100,45 @@ namespace WaylandProtocols
             }
         }
 
+        /// <summary>Whether this object's negotiated version supports 'set_label' (since 2).</summary>
+        public bool SupportsSetLabel => Version >= 2u;
+
+        /// <summary>renames the thing. Available since version 2.</summary>
+        /// <remarks>
+        /// Superseded by set_mode; kept for older clients.
+        /// </remarks>
+        [global::System.Obsolete("Deprecated since version 3.")]
+        public void SetLabel(string label)
+        {
+            if (Version < 2u)
+            {
+                throw new global::Wayland.WaylandVersionException("sample_thing", "set_label", 2u, Version);
+            }
+
+            global::System.Span<global::Wayland.WlArg> _args = stackalloc global::Wayland.WlArg[1];
+            nint _s0 = AllocString(label);
+            try
+            {
+                _args[0].Ptr = _s0;
+                MarshalRequest(3u, _args);
+            }
+            finally
+            {
+                FreeString(_s0);
+            }
+        }
+
         /// <summary>Sends the 'convert' request.</summary>
         public global::WaylandProtocols.SampleChild Convert()
         {
             global::System.Span<global::Wayland.WlArg> _args = stackalloc global::Wayland.WlArg[1];
-            return (global::WaylandProtocols.SampleChild)MarshalDestructorConstructor(3u, _args, global::WaylandProtocols.SampleChild.Interface);
+            return (global::WaylandProtocols.SampleChild)MarshalDestructorConstructor(4u, _args, global::WaylandProtocols.SampleChild.Interface);
         }
 
         /// <summary>Sends the 'destroy' request.</summary>
         public void Destroy()
         {
-            MarshalDestructor(4u, default);
+            MarshalDestructor(5u, default);
         }
 
         /// <summary>Routes disposal through the 'destroy' destructor request.</summary>
@@ -156,6 +194,13 @@ namespace WaylandProtocols
     }
 
     /// <summary>a sample interface for snapshot testing (server resource for 'sample_thing').</summary>
+    /// <remarks>
+    /// The first paragraph of normative prose, hard-wrapped
+    /// exactly as protocol XML wraps it.
+    /// <para/>
+    /// A second paragraph, with &lt;angle brackets&gt; and an &amp;
+    /// ampersand that must survive escaping.
+    /// </remarks>
     [global::Wayland.WaylandResource("sample_thing")]
     public sealed partial class SampleThingResource : global::Wayland.Server.WlResource
     {
@@ -213,6 +258,24 @@ namespace WaylandProtocols
         /// <summary>Raised when the client sends the 'give_data' request.</summary>
         public event global::System.EventHandler<GiveDataEventArgs>? GiveData;
 
+        /// <summary>Arguments of the 'set_label' event.</summary>
+        public readonly struct SetLabelEventArgs
+        {
+            internal SetLabelEventArgs(string label)
+            {
+                Label = label;
+            }
+
+            public string Label { get; }
+        }
+
+        /// <summary>renames the thing. Available since version 2.</summary>
+        /// <remarks>
+        /// Superseded by set_mode; kept for older clients.
+        /// </remarks>
+        [global::System.Obsolete("Deprecated since version 3.")]
+        public event global::System.EventHandler<SetLabelEventArgs>? SetLabel;
+
         /// <summary>Arguments of the 'convert' event.</summary>
         public readonly struct ConvertEventArgs
         {
@@ -246,14 +309,23 @@ namespace WaylandProtocols
             PostEvent(0u, _args);
         }
 
+        /// <summary>Whether this object's negotiated version supports 'spawned' (since 2).</summary>
+        public bool SupportsSendSpawned => Version >= 2u;
+
         /// <summary>Sends the 'spawned' event to the client. Available since version 2.</summary>
         public void SendSpawned(global::WaylandProtocols.SampleChildResource child)
         {
+            if (Version < 2u)
+            {
+                throw new global::Wayland.WaylandVersionException("sample_thing", "spawned", 2u, Version);
+            }
+
             global::System.Span<global::Wayland.WlArg> _args = stackalloc global::Wayland.WlArg[1];
             _args[0].Ptr = child.RawHandle;
             PostEvent(1u, _args);
         }
 
+        #pragma warning disable CS0618
         protected override void HandleRequest(uint opcode, global::System.ReadOnlySpan<global::Wayland.WlArg> args)
         {
             switch (opcode)
@@ -268,15 +340,19 @@ namespace WaylandProtocols
                     GiveData?.Invoke(this, new GiveDataEventArgs(GetArray(args[0]), args[1].Fd));
                     break;
                 case 3u:
+                    SetLabel?.Invoke(this, new SetLabelEventArgs(GetString(args[0])!));
+                    break;
+                case 4u:
                     Convert?.Invoke(this, new ConvertEventArgs(args[0].U));
                     CompleteDestructorRequest();
                     break;
-                case 4u:
+                case 5u:
                     DestroyRequest?.Invoke(this, new DestroyRequestEventArgs());
                     CompleteDestructorRequest();
                     break;
             }
         }
+        #pragma warning restore CS0618
     }
 
     /// <summary>Client proxy for the 'sample_child' interface.</summary>
