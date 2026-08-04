@@ -41,8 +41,37 @@ public sealed class WlServerDisplay : IDisposable
     /// <summary>Adds a socket with an explicit name under <c>$XDG_RUNTIME_DIR</c>.</summary>
     public void AddSocket(string name) => _impl.AddSocket(name);
 
+    /// <summary>
+    /// Serves on an already-listening socket, taking ownership of
+    /// <paramref name="fd"/>. Use for systemd socket activation, where the
+    /// listening socket is inherited rather than created.
+    /// </summary>
+    public void AddSocketFd(int fd) => _impl.AddSocketFd(fd);
+
     /// <summary>Creates a client for an already-connected socket fd.</summary>
     public WlClient CreateClient(int fd) => _impl.CreateClient(fd);
+
+    /// <summary>
+    /// Raised when a client connects, before it has sent any request. Destroy
+    /// the client from the handler to reject the connection.
+    /// </summary>
+    public event Action<WlClient>? ClientCreated
+    {
+        add
+        {
+            _clientCreated += value;
+            _impl.ClientCreatedHandler = RaiseClientCreated;
+        }
+
+        remove => _clientCreated -= value;
+    }
+
+    private Action<WlClient>? _clientCreated;
+
+    private void RaiseClientCreated(WlClient client) => _clientCreated?.Invoke(client);
+
+    /// <summary>The currently connected clients, in connection order. A snapshot, not a live view.</summary>
+    public IReadOnlyList<WlClient> Clients => _impl.GetClients();
 
     /// <summary>
     /// Decides whether <paramref name="client"/> may see a global.

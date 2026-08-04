@@ -125,60 +125,39 @@ public static unsafe class WlForeignResource
 public sealed unsafe class WlForeignDestroyListener : IDisposable
 {
     private readonly Action _callback;
-    private ListenerBlock* _block;
-    private GCHandle _selfHandle;
+    private NativeListener* _block;
 
     internal WlForeignDestroyListener(nint resourceHandle, Action callback)
     {
         _callback = callback;
-        _selfHandle = GCHandle.Alloc(this);
-        _block = (ListenerBlock*)Marshal.AllocHGlobal(sizeof(ListenerBlock));
-        _block->Listener = default;
-        _block->Listener.notify = &OnDestroyed;
-        _block->Self = GCHandle.ToIntPtr(_selfHandle);
+        _block = NativeListener.Allocate(&OnDestroyed, this);
         LibWaylandServer.wl_resource_add_destroy_listener((wl_resource*)resourceHandle, &_block->Listener);
     }
 
     public void Dispose()
     {
-        if (_block == null)
+        if (_block != null)
         {
-            return;
+            var block = _block;
+            _block = null;
+            NativeListener.Unlink(block);
         }
-
-        // Unlink from the resource's destroy signal by hand; wl_list_remove is
-        // inline in the C headers on some platforms, and the surgery is trivial.
-        var link = &_block->Listener.link;
-        link->prev->next = link->next;
-        link->next->prev = link->prev;
-        Release();
-    }
-
-    private void Release()
-    {
-        Marshal.FreeHGlobal((nint)_block);
-        _block = null;
-        _selfHandle.Free();
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct ListenerBlock
-    {
-        public wl_listener Listener;
-        public nint Self;
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void OnDestroyed(wl_listener* listener, void* data)
     {
-        var block = (ListenerBlock*)listener;
-        if (GCHandle.FromIntPtr(block->Self).Target is WlForeignDestroyListener registration)
+        var registration = NativeListener.Target<WlForeignDestroyListener>(listener);
+
+        // Free first: the callback may throw, and the signal emit frees nothing
+        // on our behalf. The signal has already unlinked the block.
+        if (registration is not null)
         {
-            // Release first: the callback may throw, and the signal emit frees
-            // nothing on our behalf.
-            var callback = registration._callback;
-            registration.Release();
-            callback();
+            registration._block = null;
         }
+
+        var callback = registration?._callback;
+        NativeListener.Free((NativeListener*)listener);
+        callback?.Invoke();
     }
 }

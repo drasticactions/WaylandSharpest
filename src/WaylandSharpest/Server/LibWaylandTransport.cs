@@ -6,7 +6,8 @@ using Wayland.Native;
 namespace Wayland.Server;
 
 /// <summary>
-/// Implementation of <see cref="IWlServerTransport"/> using <c>libwayland-server</c>.
+/// The default <see cref="IWlServerTransport"/>, running the wire protocol on
+/// <c>libwayland-server</c>.
 /// </summary>
 public sealed class LibWaylandTransport : IWlServerTransport
 {
@@ -21,6 +22,12 @@ public sealed class LibWaylandTransport : IWlServerTransport
 
 internal sealed unsafe class LibWaylandDisplay : IWlDisplay
 {
+    /// <summary>
+    /// Client wrappers interned per native pointer so bind and resource
+    /// callbacks observe stable identity. Entries are removed by the client
+    /// destroy listener, so a natural disconnect cannot leave a stale wrapper
+    /// behind for a later client allocated at the same address.
+    /// </summary>
     private readonly ConcurrentDictionary<nint, WlClient> _clients = new();
     private readonly WlServerDisplay _owner;
     private nint _handle;
@@ -68,6 +75,14 @@ internal sealed unsafe class LibWaylandDisplay : IWlDisplay
         finally
         {
             Marshal.FreeCoTaskMem(namePtr);
+        }
+    }
+
+    public void AddSocketFd(int fd)
+    {
+        if (LibWaylandServer.wl_display_add_socket_fd((wl_display*)_handle, fd) != 0)
+        {
+            throw new WaylandException($"wl_display_add_socket_fd({fd}) failed.");
         }
     }
 
@@ -142,6 +157,62 @@ internal sealed unsafe class LibWaylandDisplay : IWlDisplay
         }
     }
 
+    private Action<WlClient>? _clientCreated;
+    private NativeListener* _clientCreatedBlock;
+
+    public Action<WlClient>? ClientCreatedHandler
+    {
+        get => _clientCreated;
+        set
+        {
+            _clientCreated = value;
+            if (value is null || _clientCreatedBlock != null)
+            {
+                return;
+            }
+
+            // libwayland offers no way to unregister, so the block is installed
+            // once and freed with the display.
+            _clientCreatedBlock = NativeListener.Allocate(&OnClientCreated, this);
+            LibWaylandServer.wl_display_add_client_created_listener(
+                (wl_display*)_handle, &_clientCreatedBlock->Listener);
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void OnClientCreated(wl_listener* listener, void* data)
+    {
+        if (NativeListener.Target<LibWaylandDisplay>(listener) is not { } display ||
+            display._clientCreated is not { } handler)
+        {
+            return;
+        }
+
+        try
+        {
+            handler(display.GetOrCreateClient((nint)data));
+        }
+        catch (Exception ex)
+        {
+            display._owner.CaptureDispatchException(ex);
+        }
+    }
+
+    public IReadOnlyList<WlClient> GetClients()
+    {
+        var clients = new List<WlClient>();
+        var head = LibWaylandServer.wl_display_get_client_list((wl_display*)_handle);
+
+        // The list node is embedded in wl_client, so walk the links rather than
+        // asking for a count.
+        for (var link = head->next; link != head; link = link->next)
+        {
+            clients.Add(GetOrCreateClient((nint)LibWaylandServer.wl_client_from_link(link)));
+        }
+
+        return clients;
+    }
+
     public void Dispose()
     {
         if (_handle == 0)
@@ -152,8 +223,26 @@ internal sealed unsafe class LibWaylandDisplay : IWlDisplay
         LibWaylandServer.wl_display_destroy_clients((wl_display*)_handle);
         LibWaylandServer.wl_display_destroy((wl_display*)_handle);
         _handle = 0;
+
+        if (_clientCreatedBlock != null)
+        {
+            // The display owned the signal and is gone, so the block is already
+            // unlinked.
+            NativeListener.Free(_clientCreatedBlock);
+            _clientCreatedBlock = null;
+        }
+
+        if (_filterSelf.IsAllocated)
+        {
+            _filterSelf.Free();
+        }
     }
 
+    /// <summary>
+    /// Interns a wrapper for a native client. Clients connecting through a
+    /// listening socket are created inside libwayland, so the wrapper (and its
+    /// destroy listener) is established lazily on first contact.
+    /// </summary>
     internal WlClient GetOrCreateClient(nint handle) =>
         _clients.GetOrAdd(handle, static (h, self) => self.CreateClientWrapper(h), this);
 
@@ -161,34 +250,24 @@ internal sealed unsafe class LibWaylandDisplay : IWlDisplay
     {
         var client = new WlClient(new LibWaylandClient(handle), _owner);
 
-        var block = (ClientDestroyListener*)Marshal.AllocHGlobal(sizeof(ClientDestroyListener));
-        block->Listener = default;
-        block->Listener.notify = &OnClientDestroyed;
-        block->Display = GCHandle.ToIntPtr(GCHandle.Alloc(this));
+        // One block per client, carrying a handle to this display so the notify
+        // callback can find the intern table. Freed in the callback, which runs
+        // exactly once for every client.
+        var block = NativeListener.Allocate(&OnClientDestroyed, this);
         LibWaylandServer.wl_client_add_destroy_listener((wl_client*)handle, &block->Listener);
         return client;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct ClientDestroyListener
-    {
-        public wl_listener Listener;
-        public nint Display;
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void OnClientDestroyed(wl_listener* listener, void* data)
     {
-        var block = (ClientDestroyListener*)listener;
-        var displayHandle = GCHandle.FromIntPtr(block->Display);
-        if (displayHandle.Target is LibWaylandDisplay display &&
+        if (NativeListener.Target<LibWaylandDisplay>(listener) is { } display &&
             display._clients.TryRemove((nint)data, out var client))
         {
             client.OnTransportDestroyed();
         }
 
-        displayHandle.Free();
-        Marshal.FreeHGlobal((nint)block);
+        NativeListener.Free((NativeListener*)listener);
     }
 }
 
@@ -212,19 +291,33 @@ internal sealed unsafe class LibWaylandEventLoop : IWlEventLoop
 
     public IWlEventSource AddIdle(Action callback) =>
         LibWaylandEventSource.AddIdle(this, callback);
+
+    public IWlEventSource AddSignal(int signalNumber, Action<int> callback) =>
+        LibWaylandEventSource.AddSignal(this, signalNumber, callback);
+
+    public int Fd => LibWaylandServer.wl_event_loop_get_fd((wl_event_loop*)RawHandle);
+
+    public void DispatchIdle() =>
+        LibWaylandServer.wl_event_loop_dispatch_idle((wl_event_loop*)RawHandle);
 }
 
 internal sealed unsafe class LibWaylandEventSource : IWlEventSource
 {
     private readonly Action<int, WlFdEvents>? _fdCallback;
+    private readonly Action<int>? _signalCallback;
     private readonly Action? _callback;
     private readonly bool _oneShot;
     private nint _handle;
     private GCHandle _selfHandle;
 
-    private LibWaylandEventSource(Action<int, WlFdEvents>? fdCallback, Action? callback, bool oneShot)
+    private LibWaylandEventSource(
+        Action<int, WlFdEvents>? fdCallback,
+        Action? callback,
+        bool oneShot,
+        Action<int>? signalCallback = null)
     {
         _fdCallback = fdCallback;
+        _signalCallback = signalCallback;
         _callback = callback;
         _oneShot = oneShot;
         _selfHandle = GCHandle.Alloc(this);
@@ -246,6 +339,14 @@ internal sealed unsafe class LibWaylandEventSource : IWlEventSource
         var handle = LibWaylandServer.wl_event_loop_add_timer(
             (wl_event_loop*)loop.RawHandle, &TimerThunk, (void*)GCHandle.ToIntPtr(source._selfHandle));
         return source.Register((nint)handle, "wl_event_loop_add_timer");
+    }
+
+    internal static LibWaylandEventSource AddSignal(LibWaylandEventLoop loop, int signalNumber, Action<int> callback)
+    {
+        var source = new LibWaylandEventSource(null, null, oneShot: false, signalCallback: callback);
+        var handle = LibWaylandServer.wl_event_loop_add_signal(
+            (wl_event_loop*)loop.RawHandle, signalNumber, &SignalThunk, (void*)GCHandle.ToIntPtr(source._selfHandle));
+        return source.Register((nint)handle, $"wl_event_loop_add_signal({signalNumber})");
     }
 
     internal static LibWaylandEventSource AddIdle(LibWaylandEventLoop loop, Action callback)
@@ -318,6 +419,17 @@ internal sealed unsafe class LibWaylandEventSource : IWlEventSource
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int SignalThunk(int signalNumber, void* data)
+    {
+        if (GCHandle.FromIntPtr((nint)data).Target is LibWaylandEventSource source)
+        {
+            source._signalCallback!(signalNumber);
+        }
+
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int TimerThunk(void* data)
     {
         if (GCHandle.FromIntPtr((nint)data).Target is LibWaylandEventSource source)
@@ -333,6 +445,8 @@ internal sealed unsafe class LibWaylandEventSource : IWlEventSource
     {
         if (GCHandle.FromIntPtr((nint)data).Target is LibWaylandEventSource source)
         {
+            // libwayland frees an idle source after it fires; release our side
+            // first so a callback exception cannot leave a dangling handle.
             source.Release();
             source._callback!();
         }
@@ -552,6 +666,76 @@ internal sealed unsafe class LibWaylandGlobal : IWlGlobal
         {
             impl._display.Owner.CaptureDispatchException(ex);
         }
+    }
+
+    /// <summary>
+    /// wl_global_set_withdrawn_listener is libwayland 1.26; without it a caller
+    /// has to fall back to a grace period.
+    /// </summary>
+    internal static readonly bool HasWithdrawnListener =
+        NativeFeatures.ServerHas("wl_global_set_withdrawn_listener");
+
+    private bool _removed;
+    private Action? _withdrawn;
+
+    public bool SupportsWithdrawn => HasWithdrawnListener;
+
+    public Action? WithdrawnHandler
+    {
+        get => _withdrawn;
+        set
+        {
+            ObjectDisposedException.ThrowIf(_handle == 0, this);
+            if (value is not null && !HasWithdrawnListener)
+            {
+                throw new WaylandException(
+                    "wl_global_set_withdrawn_listener requires libwayland 1.26 or newer; the loaded libwayland-server.so.0 does not export it.");
+            }
+
+            var first = _withdrawn is null;
+            _withdrawn = value;
+            if (value is not null && first)
+            {
+                // The callback takes no user data, so the managed object is
+                // recovered from the global's own user data, as BindThunk does.
+                LibWaylandServer.wl_global_set_withdrawn_listener((wl_global*)_handle, &WithdrawnThunk);
+            }
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void WithdrawnThunk(wl_global* global)
+    {
+        var data = LibWaylandServer.wl_global_get_user_data(global);
+        if (data == null || GCHandle.FromIntPtr((nint)data).Target is not LibWaylandGlobal impl)
+        {
+            return;
+        }
+
+        try
+        {
+            impl._withdrawn?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            impl._display.Owner.CaptureDispatchException(ex);
+        }
+    }
+
+    public void Remove()
+    {
+        ObjectDisposedException.ThrowIf(_handle == 0, this);
+
+        // wl_global_remove aborts the process when called twice, so the second
+        // call must never reach libwayland.
+        if (_removed)
+        {
+            throw new InvalidOperationException(
+                $"The '{_owner.InterfaceName}' global has already been removed.");
+        }
+
+        _removed = true;
+        LibWaylandServer.wl_global_remove((wl_global*)_handle);
     }
 
     public void Dispose()

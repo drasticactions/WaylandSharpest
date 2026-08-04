@@ -17,6 +17,15 @@ public sealed class WlEventLoop
     public nint RawHandle => _impl.RawHandle;
 
     /// <summary>
+    /// The loop's pollable file descriptor. Readable means work is pending: poll
+    /// it from a host event loop (GLib, libuv, a .NET host) and call
+    /// <see cref="Dispatch"/> with a zero timeout when it fires. This is what
+    /// lets the Wayland loop run inside another loop instead of owning the
+    /// main thread.
+    /// </summary>
+    public int Fd => _impl.Fd;
+
+    /// <summary>
     /// Dispatches pending server work. <paramref name="timeoutMs"/>: 0 = poll,
     /// -1 = block until activity. Rethrows exceptions thrown by request handlers
     /// and event-source callbacks.
@@ -78,6 +87,33 @@ public sealed class WlEventLoop
                 _display.CaptureDispatchException(ex);
             }
         }));
+
+    /// <summary>
+    /// Handles <paramref name="signalNumber"/> (<c>SIGTERM</c> is 15) on the
+    /// loop thread via signalfd. libwayland blocks the signal in the calling
+    /// thread's mask, so register before spawning threads that must not receive
+    /// it. Unlike <c>PosixSignalRegistration</c>, which delivers on a threadpool
+    /// thread, the handler runs where Wayland calls are legal.
+    /// </summary>
+    public WlEventSource AddSignal(int signalNumber, Action<int> handler) =>
+        new(_impl.AddSignal(signalNumber, signal =>
+        {
+            try
+            {
+                handler(signal);
+            }
+            catch (Exception ex)
+            {
+                _display.CaptureDispatchException(ex);
+            }
+        }));
+
+    /// <summary>Runs pending idle callbacks without waiting for events.</summary>
+    public void DispatchIdle()
+    {
+        _impl.DispatchIdle();
+        _display.RethrowPendingDispatchException();
+    }
 }
 
 /// <summary>A registered event-loop source; remove it to stop callbacks.</summary>

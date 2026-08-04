@@ -21,6 +21,11 @@ public interface IWlDisplay : IDisposable
 
     void AddSocket(string name);
 
+    /// <summary>Serves on an already-listening socket, taking ownership of <paramref name="fd"/>.</summary>
+    /// <exception cref="NotSupportedException">The transport cannot adopt a listening socket.</exception>
+    void AddSocketFd(int fd) =>
+        throw new NotSupportedException($"{GetType().Name} does not support adopting a listening socket.");
+
     WlClient CreateClient(int fd);
 
     IWlGlobal CreateGlobal(WlGlobal owner, WlInterfaceSpec iface, int version);
@@ -35,6 +40,22 @@ public interface IWlDisplay : IDisposable
     uint NextSerial();
 
     void SetGlobalFilter(WlServerDisplay.GlobalFilter? filter);
+
+    /// <summary>The currently connected clients, in connection order.</summary>
+    /// <exception cref="NotSupportedException">The transport does not enumerate clients.</exception>
+    IReadOnlyList<WlClient> GetClients() =>
+        throw new NotSupportedException($"{GetType().Name} does not enumerate clients.");
+
+    /// <summary>
+    /// Invoked when a client connects, before it has sent any request.
+    /// Destroying the client from the handler rejects the connection.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The transport does not report client creation.</exception>
+    Action<WlClient>? ClientCreatedHandler
+    {
+        get => throw new NotSupportedException($"{GetType().Name} does not report client creation.");
+        set => throw new NotSupportedException($"{GetType().Name} does not report client creation.");
+    }
 }
 
 /// <summary>Transport half of a <see cref="WlEventLoop"/>.</summary>
@@ -53,6 +74,21 @@ public interface IWlEventLoop
 
     /// <summary>Adds a one-shot idle callback, run before the loop next blocks. The callback must not throw.</summary>
     IWlEventSource AddIdle(Action callback);
+
+    /// <summary>The loop's pollable file descriptor; readable means work is pending.</summary>
+    /// <exception cref="NotSupportedException">The transport's loop is not pollable.</exception>
+    int Fd =>
+        throw new NotSupportedException($"{GetType().Name} does not expose a pollable file descriptor.");
+
+    /// <summary>Handles a POSIX signal on the loop thread. The callback must not throw.</summary>
+    /// <exception cref="NotSupportedException">The transport does not deliver signals.</exception>
+    IWlEventSource AddSignal(int signalNumber, Action<int> callback) =>
+        throw new NotSupportedException($"{GetType().Name} does not support signal sources.");
+
+    /// <summary>Runs pending idle callbacks without waiting for events.</summary>
+    /// <exception cref="NotSupportedException">The transport has no idle queue to drain.</exception>
+    void DispatchIdle() =>
+        throw new NotSupportedException($"{GetType().Name} does not support dispatching idle callbacks.");
 }
 
 /// <summary>A registered event-loop source.</summary>
@@ -153,4 +189,27 @@ public interface IWlGlobal : IDisposable
     /// <exception cref="NotSupportedException">The transport does not expose global versions.</exception>
     uint Version =>
         throw new NotSupportedException($"{GetType().Name} does not expose global versions.");
+
+    /// <summary>
+    /// Unpublishes the global and notifies clients, without destroying it.
+    /// Requests already in flight still resolve.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The transport cannot unpublish without destroying.</exception>
+    void Remove() =>
+        throw new NotSupportedException($"{GetType().Name} does not support removing a global without destroying it.");
+
+    /// <summary>Whether this transport can report <see cref="WithdrawnHandler"/>.</summary>
+    bool SupportsWithdrawn => false;
+
+    /// <summary>
+    /// Invoked when no client can still bind this global and it is safe to
+    /// dispose. Declared as a settable delegate rather than an event so the
+    /// default implementation can throw.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The transport does not report withdrawal.</exception>
+    Action? WithdrawnHandler
+    {
+        get => throw new NotSupportedException($"{GetType().Name} does not report global withdrawal.");
+        set => throw new NotSupportedException($"{GetType().Name} does not report global withdrawal.");
+    }
 }
