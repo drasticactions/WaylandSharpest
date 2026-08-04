@@ -55,6 +55,12 @@ namespace WaylandSharpest.Generator
 
         public List<EnumModel> Enums { get; } = new List<EnumModel>();
 
+        /// <summary>
+        /// The request disposal routes through, if any. Deliberately restricted
+        /// to argument-less requests: DisposeCore() takes no parameters, so a
+        /// destructor that also constructs cannot be the disposal path even
+        /// though it does destroy the object.
+        /// </summary>
         public MessageModel? Destructor =>
             Requests.FirstOrDefault(r => r.IsDestructor && r.Args.Count == 0);
     }

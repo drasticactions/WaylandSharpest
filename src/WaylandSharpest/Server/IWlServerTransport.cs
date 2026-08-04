@@ -99,7 +99,28 @@ public interface IWlClient
     /// <see cref="WlArg.Ptr"/> for object-typed arguments referring to it.
     /// </summary>
     IWlResource CreateResource(WlResource owner, WlInterfaceSpec spec, uint version, uint id);
+
+    /// <summary>The client's process and user identity.</summary>
+    /// <exception cref="NotSupportedException">The transport does not expose peer credentials.</exception>
+    WlClientCredentials GetCredentials() =>
+        throw new NotSupportedException($"{GetType().Name} does not expose peer credentials.");
+
+    /// <summary>The client's connection file descriptor.</summary>
+    /// <exception cref="NotSupportedException">The transport is not socket-backed.</exception>
+    int Fd =>
+        throw new NotSupportedException($"{GetType().Name} does not expose a connection file descriptor.");
+
+    /// <summary>Transport handle of the client's object <paramref name="id"/>, or 0.</summary>
+    /// <exception cref="NotSupportedException">The transport does not support object lookup.</exception>
+    nint GetObjectHandle(uint id) =>
+        throw new NotSupportedException($"{GetType().Name} does not support object lookup by id.");
 }
+
+/// <summary>Peer credentials of a connected client, from <c>SO_PEERCRED</c>.</summary>
+/// <param name="Pid">Process id of the peer.</param>
+/// <param name="Uid">Effective user id of the peer.</param>
+/// <param name="Gid">Effective group id of the peer.</param>
+public readonly record struct WlClientCredentials(int Pid, uint Uid, uint Gid);
 
 /// <summary>Transport half of a <see cref="WlResource"/>.</summary>
 public interface IWlResource
@@ -120,4 +141,16 @@ public interface IWlResource
 /// <summary>Transport half of a <see cref="WlGlobal"/>; disposal withdraws the global.</summary>
 public interface IWlGlobal : IDisposable
 {
+    /// <summary>
+    /// The registry name this global is advertised under to
+    /// <paramref name="client"/>, or 0 when the client cannot see it.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The transport does not expose registry global names.</exception>
+    uint NameFor(WlClient client) =>
+        throw new NotSupportedException($"{GetType().Name} does not expose registry global names.");
+
+    /// <summary>The interface version this global was published at.</summary>
+    /// <exception cref="NotSupportedException">The transport does not expose global versions.</exception>
+    uint Version =>
+        throw new NotSupportedException($"{GetType().Name} does not expose global versions.");
 }

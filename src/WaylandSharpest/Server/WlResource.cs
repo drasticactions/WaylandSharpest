@@ -137,6 +137,13 @@ public abstract unsafe class WlResource
     }
 
     /// <summary>
+    /// The wrapper for a transport resource handle, or <c>null</c> when the
+    /// resource belongs to another implementation.
+    /// </summary>
+    internal static WlResource? FromHandle(nint handle) =>
+        Owned.TryGetValue(handle, out var resource) ? resource : null;
+
+    /// <summary>
     /// The raw <c>wl_resource*</c> of an object argument, regardless of owner.
     /// Use to bridge to a native library that owns the resource, e.g.
     /// <c>wlr_surface_from_resource</c>. Returns 0 for a null argument.

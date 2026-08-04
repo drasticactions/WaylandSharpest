@@ -17,6 +17,15 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/WaylandSharpest/WaylandSharpest.csproj" />
+    <ProjectReference Include="../../src/WaylandSharpest.Generator/WaylandSharpest.Generator.csproj"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="Analyzer" />
+    <AdditionalFiles Include="protocols/test-helpers.xml"
+                     WaylandNamespace="WaylandSharpest.Tests.Protocol" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <CompilerVisibleItemMetadata Include="AdditionalFiles" MetadataName="WaylandNamespace" />
   </ItemGroup>
 
 </Project>

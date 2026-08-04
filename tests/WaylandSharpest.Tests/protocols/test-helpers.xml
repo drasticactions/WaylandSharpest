@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="test_helpers">
+  <copyright>
+    Synthetic protocol used only by the WaylandSharpest test suite.
+  </copyright>
+
+  <interface name="test_factory" version="2">
+    <description summary="creates test_child objects over the loopback harness"/>
+
+    <request name="make_child">
+      <description summary="creates a child without destroying this object"/>
+      <arg name="id" type="new_id" interface="test_child"/>
+    </request>
+
+    <request name="convert" type="destructor">
+      <description summary="creates a child and destroys this object in the same request"/>
+      <arg name="id" type="new_id" interface="test_child"/>
+    </request>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroys this object"/>
+    </request>
+
+    <request name="poke_v2" since="2">
+      <description summary="a request the client may only send at version 2"/>
+    </request>
+
+    <event name="ready">
+      <description summary="sent at any version"/>
+    </event>
+
+    <event name="ready_v2" since="2">
+      <description summary="an event the server may only send at version 2"/>
+    </event>
+  </interface>
+
+  <interface name="test_child" version="1">
+    <description summary="an object created by test_factory"/>
+
+    <request name="destroy" type="destructor"/>
+
+    <request name="poke">
+      <arg name="value" type="uint"/>
+    </request>
+
+    <event name="poked">
+      <arg name="value" type="uint"/>
+    </event>
+  </interface>
+</protocol>

@@ -23,6 +23,17 @@ public sealed class WlGlobal : IDisposable
     /// <summary>The protocol interface this global advertises.</summary>
     public string InterfaceName { get; }
 
+    /// <summary>The interface version this global was published at.</summary>
+    public uint Version => _impl.Version;
+
+    /// <summary>
+    /// The <c>wl_registry</c> name this global is advertised under to
+    /// <paramref name="client"/>, or 0 when that client cannot see it — a filter
+    /// installed with <see cref="WlServerDisplay.SetGlobalFilter"/> may hide it.
+    /// Protocols that hand a client a global to bind by name need this.
+    /// </summary>
+    public uint NameFor(WlClient client) => _impl.NameFor(client);
+
     /// <summary>Called by the transport when a client binds this global.</summary>
     internal void HandleBind(WlClient client, uint version, uint id) => _onBind(client, version, id);
 

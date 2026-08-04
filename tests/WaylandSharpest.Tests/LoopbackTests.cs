@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using Wayland;
 using Wayland.Server;
 using Xunit;
@@ -9,61 +8,14 @@ namespace WaylandSharpest.Tests;
 /// Full-stack tests: an in-process libwayland server and client connected over a
 /// socketpair, exercising the generated core-protocol bindings on both sides.
 /// </summary>
-public sealed class LoopbackTests : IDisposable
+public sealed class LoopbackTests : LoopbackHarness
 {
-    private const int AF_UNIX = 1;
-    private const int SOCK_STREAM = 1;
-
-    [DllImport("libc", SetLastError = true)]
-    private static extern unsafe int socketpair(int domain, int type, int protocol, int* sv);
-
-    private readonly WlServerDisplay _server;
-    private readonly WlDisplay _client;
-
-    public LoopbackTests()
-    {
-        _server = WlServerDisplay.Create();
-        int fd0, fd1;
-        unsafe
-        {
-            var fds = stackalloc int[2];
-            Assert.Equal(0, socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
-            fd0 = fds[0];
-            fd1 = fds[1];
-        }
-
-        _server.CreateClient(fd0);
-        _client = WlDisplay.ConnectToFd(fd1);
-    }
-
-    public void Dispose()
-    {
-        _client.Dispose();
-        _server.Dispose();
-    }
-
-    /// <summary>Client flushes, server processes, server flushes, client dispatches.</summary>
-    private void PumpToClient()
-    {
-        _client.Flush();
-        _server.EventLoop.Dispatch(100);
-        _server.FlushClients();
-        _client.Dispatch();
-    }
-
-    /// <summary>Client flushes and the server processes the requests.</summary>
-    private void PumpToServer()
-    {
-        _client.Flush();
-        _server.EventLoop.Dispatch(100);
-    }
-
     [Fact]
     public void Registry_advertises_globals()
     {
-        using var global = _server.CreateGlobal(WlCompositor.Interface, 6, static (_, _, _) => { });
+        using var global = Server.CreateGlobal(WlCompositor.Interface, 6, static (_, _, _) => { });
 
-        using var registry = _client.GetRegistry();
+        using var registry = Client.GetRegistry();
         var announced = new List<(uint Name, string Interface, uint Version)>();
         registry.Global += (_, e) => announced.Add((e.Name, e.Interface, e.Version));
 
@@ -80,7 +32,7 @@ public sealed class LoopbackTests : IDisposable
         WlSurfaceResource? serverSurface = null;
         var committed = false;
 
-        using var global = _server.CreateGlobal(WlCompositor.Interface, 6, (client, version, id) =>
+        using var global = Server.CreateGlobal(WlCompositor.Interface, 6, (client, version, id) =>
         {
             boundCompositor = new WlCompositorResource(client, version, id);
             boundCompositor.CreateSurface += (sender, e) =>
@@ -90,7 +42,7 @@ public sealed class LoopbackTests : IDisposable
             };
         });
 
-        using var registry = _client.GetRegistry();
+        using var registry = Client.GetRegistry();
         uint compositorName = 0;
         registry.Global += (_, e) =>
         {
@@ -126,15 +78,15 @@ public sealed class LoopbackTests : IDisposable
     }
 
     [Fact]
-    public void Server_events_reach_client()
+    public void Server_events_reachClient()
     {
         WlSeatResource? serverSeat = null;
-        using var global = _server.CreateGlobal(WlSeat.Interface, 5, (client, version, id) =>
+        using var global = Server.CreateGlobal(WlSeat.Interface, 5, (client, version, id) =>
         {
             serverSeat = new WlSeatResource(client, version, id);
         });
 
-        using var registry = _client.GetRegistry();
+        using var registry = Client.GetRegistry();
         uint seatName = 0;
         registry.Global += (_, e) =>
         {
@@ -154,8 +106,8 @@ public sealed class LoopbackTests : IDisposable
         Assert.NotNull(serverSeat);
         serverSeat!.SendCapabilities(WlSeat.Capability.Pointer | WlSeat.Capability.Keyboard);
         serverSeat.SendName("seat0");
-        _server.FlushClients();
-        _client.Dispatch();
+        Server.FlushClients();
+        Client.Dispatch();
 
         Assert.Equal(2, received.Count);
         Assert.Equal(WlSeat.Capability.Pointer | WlSeat.Capability.Keyboard, received[0].Caps);
@@ -165,16 +117,16 @@ public sealed class LoopbackTests : IDisposable
     [Fact]
     public void Event_handler_exceptions_surface_on_dispatch()
     {
-        using var global = _server.CreateGlobal(WlCompositor.Interface, 6, static (_, _, _) => { });
+        using var global = Server.CreateGlobal(WlCompositor.Interface, 6, static (_, _, _) => { });
 
-        using var registry = _client.GetRegistry();
+        using var registry = Client.GetRegistry();
         registry.Global += (_, _) => throw new InvalidOperationException("boom");
 
-        _client.Flush();
-        _server.EventLoop.Dispatch(100);
-        _server.FlushClients();
+        Client.Flush();
+        Server.EventLoop.Dispatch(100);
+        Server.FlushClients();
 
-        var ex = Assert.Throws<WaylandException>(() => _client.Dispatch());
+        var ex = Assert.Throws<WaylandException>(() => Client.Dispatch());
         Assert.IsType<InvalidOperationException>(ex.InnerException);
     }
 }

@@ -43,6 +43,31 @@ public sealed class WlClient
         }
     }
 
+    /// <summary>
+    /// The client's process and user identity. Valid for the life of the
+    /// connection; a pid can be reused after the peer exits, so do not treat it
+    /// as a durable handle.
+    /// </summary>
+    public WlClientCredentials Credentials => Impl.GetCredentials();
+
+    /// <summary>The client's connection file descriptor. The client owns it; do not close it.</summary>
+    public int Fd => Impl.Fd;
+
+    /// <summary>
+    /// The client's protocol object with the given id, or <c>null</c> if it has
+    /// none. Returns objects created by this library as their
+    /// <see cref="WlResource"/> wrapper; use <see cref="GetObjectHandle"/> for
+    /// objects owned by another implementation.
+    /// </summary>
+    public WlResource? GetObject(uint id)
+    {
+        var handle = GetObjectHandle(id);
+        return handle == 0 ? null : WlResource.FromHandle(handle);
+    }
+
+    /// <summary>Raw <c>wl_resource*</c> for the client's object <paramref name="id"/>, or 0.</summary>
+    public nint GetObjectHandle(uint id) => Impl.GetObjectHandle(id);
+
     public void Flush()
     {
         ObjectDisposedException.ThrowIf(_destroyed, this);

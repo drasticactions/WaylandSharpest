@@ -18,6 +18,7 @@ namespace WaylandProtocols
                 new global::Wayland.WlMessageSpec("set_mode", "u", new global::System.Func<global::Wayland.WlInterfaceSpec>?[] { null }),
                 new global::Wayland.WlMessageSpec("make_child", "n?s", new global::System.Func<global::Wayland.WlInterfaceSpec>?[] { static () => global::WaylandProtocols.SampleChild.Interface!, null }),
                 new global::Wayland.WlMessageSpec("give_data", "ah", new global::System.Func<global::Wayland.WlInterfaceSpec>?[] { null, null }),
+                new global::Wayland.WlMessageSpec("convert", "n", new global::System.Func<global::Wayland.WlInterfaceSpec>?[] { static () => global::WaylandProtocols.SampleChild.Interface! }),
                 new global::Wayland.WlMessageSpec("destroy", "", null),
             },
             new global::Wayland.WlMessageSpec[]
@@ -89,10 +90,17 @@ namespace WaylandProtocols
             }
         }
 
+        /// <summary>Sends the 'convert' request.</summary>
+        public global::WaylandProtocols.SampleChild Convert()
+        {
+            global::System.Span<global::Wayland.WlArg> _args = stackalloc global::Wayland.WlArg[1];
+            return (global::WaylandProtocols.SampleChild)MarshalDestructorConstructor(3u, _args, global::WaylandProtocols.SampleChild.Interface);
+        }
+
         /// <summary>Sends the 'destroy' request.</summary>
         public void Destroy()
         {
-            MarshalDestructor(3u, default);
+            MarshalDestructor(4u, default);
         }
 
         /// <summary>Routes disposal through the 'destroy' destructor request.</summary>
@@ -205,6 +213,21 @@ namespace WaylandProtocols
         /// <summary>Raised when the client sends the 'give_data' request.</summary>
         public event global::System.EventHandler<GiveDataEventArgs>? GiveData;
 
+        /// <summary>Arguments of the 'convert' event.</summary>
+        public readonly struct ConvertEventArgs
+        {
+            internal ConvertEventArgs(uint id)
+            {
+                Id = id;
+            }
+
+            /// <summary>New object id; construct the matching resource with it.</summary>
+            public uint Id { get; }
+        }
+
+        /// <summary>Raised when the client sends the 'convert' request. The resource is destroyed automatically after this event.</summary>
+        public event global::System.EventHandler<ConvertEventArgs>? Convert;
+
         /// <summary>Arguments of the 'destroy' event.</summary>
         public readonly struct DestroyRequestEventArgs
         {
@@ -245,6 +268,10 @@ namespace WaylandProtocols
                     GiveData?.Invoke(this, new GiveDataEventArgs(GetArray(args[0]), args[1].Fd));
                     break;
                 case 3u:
+                    Convert?.Invoke(this, new ConvertEventArgs(args[0].U));
+                    CompleteDestructorRequest();
+                    break;
+                case 4u:
                     DestroyRequest?.Invoke(this, new DestroyRequestEventArgs());
                     CompleteDestructorRequest();
                     break;

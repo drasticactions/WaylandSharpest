@@ -348,7 +348,10 @@ namespace WaylandSharpest.Generator
 
             if (plan.ConstructorIfaceExpr is not null)
             {
-                return $"return ({plan.ReturnType})MarshalConstructor({opcode}, {argsExpr}, {plan.ConstructorIfaceExpr});";
+                // A destructor request may still carry a new_id; the wire call
+                // creates the object and destroys the sender in one go.
+                var call = request.IsDestructor ? "MarshalDestructorConstructor" : "MarshalConstructor";
+                return $"return ({plan.ReturnType}){call}({opcode}, {argsExpr}, {plan.ConstructorIfaceExpr});";
             }
 
             if (request.IsDestructor)

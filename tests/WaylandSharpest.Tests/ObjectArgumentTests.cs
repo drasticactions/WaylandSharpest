@@ -12,68 +12,9 @@ namespace WaylandSharpest.Tests;
 /// display resolve to null (their user data is never dereferenced), and the
 /// raw-handle accessors expose the native pointer for bridging.
 /// </summary>
-public sealed class ObjectArgumentTests : IDisposable
+public sealed class ObjectArgumentTests : LoopbackHarness
 {
-    private const int AF_UNIX = 1;
-    private const int SOCK_STREAM = 1;
-
-    [DllImport("libc", SetLastError = true)]
-    private static extern unsafe int socketpair(int domain, int type, int protocol, int* sv);
-
-    private readonly WlServerDisplay _server;
-    private readonly WlDisplay _client;
-
-    public ObjectArgumentTests()
-    {
-        _server = WlServerDisplay.Create();
-        int fd0, fd1;
-        unsafe
-        {
-            var fds = stackalloc int[2];
-            Assert.Equal(0, socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
-            fd0 = fds[0];
-            fd1 = fds[1];
-        }
-
-        _server.CreateClient(fd0);
-        _client = WlDisplay.ConnectToFd(fd1);
-    }
-
-    public void Dispose()
-    {
-        _client.Dispose();
-        _server.Dispose();
-    }
-
-    private void PumpToClient()
-    {
-        _client.Flush();
-        _server.EventLoop.Dispatch(100);
-        _server.FlushClients();
-        _client.Dispatch();
-    }
-
-    private void PumpToServer()
-    {
-        _client.Flush();
-        _server.EventLoop.Dispatch(100);
-    }
-
-    private WlCompositor BindCompositor(WlGlobal global)
-    {
-        using var registry = _client.GetRegistry();
-        uint name = 0;
-        registry.Global += (_, e) =>
-        {
-            if (e.Interface == "wl_compositor")
-            {
-                name = e.Name;
-            }
-        };
-        PumpToClient();
-        Assert.NotEqual(0u, name);
-        return registry.Bind<WlCompositor>(name, 6);
-    }
+    private WlCompositor BindCompositor(WlGlobal global) => Bind<WlCompositor>("wl_compositor", 6);
 
     /// <summary>Exposes the protected static decode helpers; never instantiated.</summary>
     private sealed class ResourceProbe : WlResource
@@ -115,7 +56,7 @@ public sealed class ObjectArgumentTests : IDisposable
         WlRegionResource? decodedRegion = null;
         nint decodedHandle = 0;
 
-        using var global = _server.CreateGlobal(WlCompositor.Interface, 6, (client, version, id) =>
+        using var global = Server.CreateGlobal(WlCompositor.Interface, 6, (client, version, id) =>
         {
             var compositor = new WlCompositorResource(client, version, id);
             compositor.CreateSurface += (_, e) =>
@@ -153,7 +94,7 @@ public sealed class ObjectArgumentTests : IDisposable
 
         try
         {
-            using var global = _server.CreateGlobal(WlCompositor.Interface, 6, (client, version, id) =>
+            using var global = Server.CreateGlobal(WlCompositor.Interface, 6, (client, version, id) =>
             {
                 var compositor = new WlCompositorResource(client, version, id);
                 compositor.CreateSurface += (_, e) =>
@@ -204,7 +145,7 @@ public sealed class ObjectArgumentTests : IDisposable
     public void Destroyed_resources_are_deregistered()
     {
         WlSurfaceResource? serverSurface = null;
-        using var global = _server.CreateGlobal(WlCompositor.Interface, 6, (client, version, id) =>
+        using var global = Server.CreateGlobal(WlCompositor.Interface, 6, (client, version, id) =>
         {
             var compositor = new WlCompositorResource(client, version, id);
             compositor.CreateSurface += (_, e) => serverSurface = new WlSurfaceResource(client, version, e.Id);
@@ -232,18 +173,18 @@ public sealed class ObjectArgumentTests : IDisposable
         WlSurfaceResource? serverSurface = null;
         WlPointerResource? serverPointer = null;
 
-        using var compositorGlobal = _server.CreateGlobal(WlCompositor.Interface, 6, (client, version, id) =>
+        using var compositorGlobal = Server.CreateGlobal(WlCompositor.Interface, 6, (client, version, id) =>
         {
             var compositor = new WlCompositorResource(client, version, id);
             compositor.CreateSurface += (_, e) => serverSurface = new WlSurfaceResource(client, version, e.Id);
         });
-        using var seatGlobal = _server.CreateGlobal(WlSeat.Interface, 5, (client, version, id) =>
+        using var seatGlobal = Server.CreateGlobal(WlSeat.Interface, 5, (client, version, id) =>
         {
             var seat = new WlSeatResource(client, version, id);
             seat.GetPointer += (_, e) => serverPointer = new WlPointerResource(client, version, e.Id);
         });
 
-        using var registry = _client.GetRegistry();
+        using var registry = Client.GetRegistry();
         uint compositorName = 0, seatName = 0;
         registry.Global += (_, e) =>
         {
@@ -276,8 +217,8 @@ public sealed class ObjectArgumentTests : IDisposable
         Assert.NotNull(serverPointer);
 
         serverPointer!.SendEnter(1, serverSurface!, WlFixed.FromInt(10), WlFixed.FromInt(20));
-        _server.FlushClients();
-        _client.Dispatch();
+        Server.FlushClients();
+        Client.Dispatch();
 
         Assert.Same(surface, decodedSurface);
         Assert.Equal(surface.RawHandle, decodedHandle);
@@ -303,9 +244,9 @@ public sealed class ObjectArgumentTests : IDisposable
     [Fact]
     public void Disposed_proxies_are_deregistered()
     {
-        Assert.Same(_client, ProxyProbe.Decode<WlDisplay>(_client.RawHandle));
+        Assert.Same(Client, ProxyProbe.Decode<WlDisplay>(Client.RawHandle));
 
-        var registry = _client.GetRegistry();
+        var registry = Client.GetRegistry();
         var handle = registry.RawHandle;
         Assert.Same(registry, ProxyProbe.Decode<WlRegistry>(handle));
 

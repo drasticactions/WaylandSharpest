@@ -129,6 +129,19 @@ public abstract unsafe class WlProxy : IDisposable
         MarshalCore(opcode, args, iface, Version, 0)!;
 
     /// <summary>
+    /// Sends a destructor request that also creates an object: the new proxy is
+    /// returned and this proxy is destroyed atomically.
+    /// </summary>
+    protected WlProxy MarshalDestructorConstructor(uint opcode, scoped ReadOnlySpan<WlArg> args, WlInterfaceSpec iface)
+    {
+        // MarshalCore reads the handle and rejects a destroyed proxy, so the
+        // managed bookkeeping has to follow it.
+        var created = MarshalCore(opcode, args, iface, Version, MarshalFlagDestroy)!;
+        MarkDestroyed();
+        return created;
+    }
+
+    /// <summary>
     /// Sends a request whose <c>new_id</c> argument carries no compile-time
     /// interface (only <c>wl_registry.bind</c> in practice); the interface name
     /// and version travel as explicit arguments.

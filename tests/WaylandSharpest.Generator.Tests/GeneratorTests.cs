@@ -30,6 +30,9 @@ public class GeneratorTests
               <arg name="data" type="array"/>
               <arg name="fd" type="fd"/>
             </request>
+            <request name="convert" type="destructor">
+              <arg name="id" type="new_id" interface="sample_child"/>
+            </request>
             <request name="destroy" type="destructor"/>
             <event name="state">
               <arg name="serial" type="uint"/>

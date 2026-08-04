@@ -354,6 +354,20 @@ internal sealed unsafe class LibWaylandClient : IWlClient
 
     public IWlResource CreateResource(WlResource owner, WlInterfaceSpec spec, uint version, uint id) =>
         new LibWaylandResource(owner, this, spec, version, id);
+
+    public WlClientCredentials GetCredentials()
+    {
+        // Read every time: a cached pid outlives correctness for a long-lived wrapper.
+        int pid;
+        uint uid, gid;
+        LibWaylandServer.wl_client_get_credentials((wl_client*)RawHandle, &pid, &uid, &gid);
+        return new WlClientCredentials(pid, uid, gid);
+    }
+
+    public int Fd => LibWaylandServer.wl_client_get_fd((wl_client*)RawHandle);
+
+    public nint GetObjectHandle(uint id) =>
+        (nint)LibWaylandServer.wl_client_get_object((wl_client*)RawHandle, id);
 }
 
 internal sealed unsafe class LibWaylandResource : IWlResource
@@ -492,6 +506,33 @@ internal sealed unsafe class LibWaylandGlobal : IWlGlobal
         }
 
         _handle = (nint)global;
+    }
+
+    /// <summary>
+    /// wl_global_get_name arrived in libwayland 1.22, which is recent enough that
+    /// a supported distribution may not have it.
+    /// </summary>
+    private static readonly bool HasGetName = NativeFeatures.ServerHas("wl_global_get_name");
+
+    public uint NameFor(WlClient client)
+    {
+        ObjectDisposedException.ThrowIf(_handle == 0, this);
+        if (!HasGetName)
+        {
+            throw new WaylandException(
+                "wl_global_get_name requires libwayland 1.22 or newer; the loaded libwayland-server.so.0 does not export it.");
+        }
+
+        return LibWaylandServer.wl_global_get_name((wl_global*)_handle, (wl_client*)client.RawHandle);
+    }
+
+    public uint Version
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_handle == 0, this);
+            return LibWaylandServer.wl_global_get_version((wl_global*)_handle);
+        }
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
