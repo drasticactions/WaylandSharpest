@@ -26,15 +26,36 @@ jobs:
             8.0.x
             10.0.x
 
-      - name: Install libwayland and weston
+      - name: Install libwayland, weston, and the libwayland build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libwayland-client0 libwayland-server0 weston
+          sudo apt-get install -y --no-install-recommends \
+            libwayland-client0 libwayland-server0 weston \
+            meson ninja-build pkg-config libffi-dev libexpat1-dev
+
+      - name: Build libwayland from the submodule
+        run: eng/build-wayland.sh
+
+      - name: Report libwayland versions
+        run: |
+          sed -n "s/^\s*version: '\(.*\)',$/submodule:    \1/p" external/wayland/meson.build | head -1
+          dpkg-query -W -f='distribution: ${Version}\n' libwayland-server0
 
       - name: Build
         run: dotnet build -c Release
 
-      - name: Test
+      # The submodule is the version Native/generated/ was produced from, so it
+      # is the one the bindings are actually written against.
+      - name: Test (submodule libwayland)
+        run: dotnet test -c Release --no-build
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/artifacts/wayland/lib
+
+      # Entry points newer than the distribution's libwayland are reached behind
+      # a runtime probe, and their tests skip here. Running the suite a second
+      # time is what keeps those fallbacks honest -- and this is the libwayland
+      # most consumers will actually have.
+      - name: Test (distribution libwayland)
         run: dotnet test -c Release --no-build
 
       - name: Sample smoke test (headless weston)
@@ -49,8 +70,11 @@ jobs:
 
           # The sample runs until its window is closed; nothing closes it
           # headlessly, so a timeout kill (124) after mapping is the pass case.
+          # Only the client gets the submodule libraries: weston is already
+          # running against the distribution's, which is the realistic pairing.
           set +e
-          WAYLAND_DISPLAY=ci-smoke timeout 8 \
+          WAYLAND_DISPLAY=ci-smoke \
+          LD_LIBRARY_PATH="$GITHUB_WORKSPACE/artifacts/wayland/lib" timeout 8 \
             dotnet samples/ShmWindow/bin/Release/net10.0/ShmWindow.dll > sample.log 2>&1
           status=$?
           set -e
@@ -67,14 +91,17 @@ jobs:
           fi
           grep -q "Window mapped" sample.log
 
+      # Not artifacts/ itself: the libwayland build lives there.
       - name: Pack
-        run: dotnet pack src/WaylandSharpest/WaylandSharpest.csproj -c Release --no-build -o artifacts
+        run: |
+          dotnet pack src/WaylandSharpest/WaylandSharpest.csproj -c Release --no-build -o artifacts/packages
+          dotnet pack src/WaylandSharpest.Protocols/WaylandSharpest.Protocols.csproj -c Release --no-build -o artifacts/packages
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
           name: nupkg
           path: |
-            artifacts/*.nupkg
-            artifacts/*.snupkg
+            artifacts/packages/*.nupkg
+            artifacts/packages/*.snupkg
           if-no-files-found: error
