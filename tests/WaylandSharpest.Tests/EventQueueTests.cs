@@ -43,7 +43,9 @@ public sealed class EventQueueTests : LoopbackHarness
         // SetQueue for an event to slip through.
         using var seat = wrapper.Bind<WlSeat>(seatName, 5);
         Assert.Same(queue, seat.Queue);
-        Assert.Equal(1, queue.AssignedProxyCount);
+
+        // The wrapper counts too: it points at the queue and creates objects there.
+        Assert.Equal(2, queue.AssignedProxyCount);
 
         var names = new List<string>();
         seat.Name += (_, e) => names.Add(e.Name);
@@ -106,8 +108,11 @@ public sealed class EventQueueTests : LoopbackHarness
         using var seat = Bind<WlSeat>("wl_seat", 5);
 
         var wrapper = seat.CreateWrapper<WlSeat>(queue);
+        Assert.Equal(1, queue.AssignedProxyCount);
+
         wrapper.Dispose();
         Assert.True(wrapper.IsDestroyed);
+        Assert.Equal(0, queue.AssignedProxyCount);
 
         // The underlying object is untouched and still usable.
         Assert.False(seat.IsDestroyed);

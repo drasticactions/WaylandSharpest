@@ -121,7 +121,9 @@ public abstract unsafe class WlProxy : IDisposable
             LibWaylandClient.wl_proxy_set_queue((wl_proxy*)wrapper, (wl_event_queue*)queue.RawHandle);
         }
 
-        proxy._queue = queue;
+        // A wrapper receives no events but still points at the queue, and
+        // objects it creates are born there, so it counts against disposal.
+        proxy.TrackQueue(queue);
         return (T)proxy;
     }
 
