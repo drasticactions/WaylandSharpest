@@ -120,6 +120,19 @@ public static unsafe class WlForeignResource
     public static WlForeignDestroyListener AddDestroyListener(nint resourceHandle, Action callback) =>
         new(resourceHandle, callback);
 
+    /// <summary>
+    /// Destroys a resource this library does not own. Needed to service
+    /// <c>wl_fixes.destroy_registry</c>, whose argument is a <c>wl_registry</c>
+    /// libwayland created and therefore always foreign.
+    /// </summary>
+    public static void Destroy(nint resourceHandle)
+    {
+        if (resourceHandle != 0)
+        {
+            LibWaylandServer.wl_resource_destroy((wl_resource*)resourceHandle);
+        }
+    }
+
     /// <summary>The resource's interface name, e.g. <c>wl_surface</c>.</summary>
     public static string GetInterfaceName(nint resourceHandle) =>
         Marshal.PtrToStringUTF8((nint)LibWaylandServer.wl_resource_get_class((wl_resource*)resourceHandle))

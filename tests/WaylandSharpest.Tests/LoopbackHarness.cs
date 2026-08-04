@@ -71,6 +71,22 @@ public abstract class LoopbackHarness : IDisposable
         Client.Dispatch();
     }
 
+    /// <summary>
+    /// Pumps both directions without blocking when nothing is on the way. Use
+    /// where the point of the test is that an event may legitimately not arrive;
+    /// <see cref="PumpToClient"/> would hang there.
+    /// </summary>
+    protected void TryPump()
+    {
+        Client.Flush();
+        Server.EventLoop.Dispatch(100);
+        Server.FlushClients();
+        if (Client.TryReadEvents(100))
+        {
+            Client.DispatchPending();
+        }
+    }
+
     /// <summary>Binds the single global advertising <paramref name="interfaceName"/> at <paramref name="version"/>.</summary>
     protected T Bind<T>(string interfaceName, uint version)
         where T : WlProxy, IWaylandObject<T>

@@ -88,32 +88,48 @@ public sealed class WlGlobal : IDisposable
     /// Removes the global and disposes it once no client can still bind it — the
     /// safe counterpart to <see cref="Dispose"/> for a global clients may be
     /// racing, such as a <c>wl_output</c> for a monitor being unplugged. Returns
-    /// immediately; disposal happens later on the display's event loop. Uses the
-    /// withdrawn notification where libwayland 1.26 is present and a
-    /// <paramref name="graceMs"/> timer otherwise.
+    /// immediately; disposal happens later on the display's event loop, from
+    /// whichever of the withdrawn notification or the
+    /// <paramref name="graceMs"/> timer comes first.
     /// </summary>
-    /// <param name="graceMs">Fallback delay before disposal, in milliseconds.</param>
+    /// <remarks>
+    /// The timer is armed even where the withdrawn notification is available,
+    /// because that notification only fires once every client has acknowledged
+    /// the removal with <c>wl_fixes.ack_global_remove</c> or dropped its
+    /// registry — and a client that does not implement <c>wl_fixes</c> never
+    /// acknowledges. Waiting on the notification alone would leak the global for
+    /// the lifetime of such a client.
+    /// </remarks>
+    /// <param name="graceMs">Upper bound on the delay before disposal, in milliseconds.</param>
     /// <exception cref="InvalidOperationException">The global has already been removed.</exception>
     public void RemoveAndDispose(int graceMs = 5000)
     {
+        WlEventSource? timer = null;
+        var completed = false;
+
+        void Complete()
+        {
+            if (completed)
+            {
+                return;
+            }
+
+            completed = true;
+            timer?.Remove();
+            Dispose();
+        }
+
+        // Armed before Remove(), which can raise Withdrawn synchronously when no
+        // client has ever seen the global.
+        timer = _display.EventLoop.AddTimer(Complete);
+        timer.UpdateTimer(graceMs <= 0 ? 1 : graceMs);
+
         if (SupportsWithdrawnNotification)
         {
-            Withdrawn += Dispose;
-            Remove();
-            return;
+            Withdrawn += Complete;
         }
 
         Remove();
-
-        // One-shot: the source removes itself before disposing, so a disposal
-        // that throws cannot leave the timer armed.
-        WlEventSource? timer = null;
-        timer = _display.EventLoop.AddTimer(() =>
-        {
-            timer!.Remove();
-            Dispose();
-        });
-        timer.UpdateTimer(graceMs <= 0 ? 1 : graceMs);
     }
 
     /// <summary>Called by the transport when a client binds this global.</summary>
