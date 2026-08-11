@@ -158,6 +158,12 @@ public interface IWlClient
     /// <exception cref="NotSupportedException">The transport does not support object lookup.</exception>
     nint GetObjectHandle(uint id) =>
         throw new NotSupportedException($"{GetType().Name} does not support object lookup by id.");
+
+    /// <summary>
+    /// Releases an fd-slot value this client delivered in a request, or that the
+    /// compositor staged for an event and did not send.
+    /// </summary>
+    void CloseFd(int fd);
 }
 
 /// <summary>Peer credentials of a connected client, from <c>SO_PEERCRED</c>.</summary>

@@ -68,6 +68,12 @@ public sealed class WlClient
     /// <summary>Raw <c>wl_resource*</c> for the client's object <paramref name="id"/>, or 0.</summary>
     public nint GetObjectHandle(uint id) => Impl.GetObjectHandle(id);
 
+    /// <summary>
+    /// Releases an fd-slot value this client delivered in a request, or that
+    /// was staged for an event and never sent.
+    /// </summary>
+    public void CloseFd(int fd) => _impl.CloseFd(fd);
+
     public void Flush()
     {
         ObjectDisposedException.ThrowIf(_destroyed, this);

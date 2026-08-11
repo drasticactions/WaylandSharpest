@@ -548,6 +548,17 @@ internal sealed unsafe class LibWaylandClient : IWlClient
 
     public nint GetObjectHandle(uint id) =>
         (nint)LibWaylandServer.wl_client_get_object((wl_client*)RawHandle, id);
+
+    public void CloseFd(int fd)
+    {
+        if (fd >= 0)
+        {
+            close(fd);
+        }
+    }
+
+    [DllImport("libc", EntryPoint = "close", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int close(int fd);
 }
 
 internal sealed unsafe class LibWaylandResource : IWlResource
