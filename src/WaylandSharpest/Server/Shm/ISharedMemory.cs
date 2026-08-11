@@ -32,6 +32,9 @@ public interface IMappedMemory : IDisposable
     /// <summary>Length of the mapping in bytes.</summary>
     int Size { get; }
 
+    /// <summary>False when the fd only permitted a read-only mapping; writes through <see cref="Address"/> would then fault.</summary>
+    bool IsWritable { get; }
+
     /// <summary>
     /// Maps the same region again at <paramref name="newSize"/> and returns the
     /// new mapping (<c>wl_shm_pool.resize</c>).

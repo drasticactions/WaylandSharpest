@@ -56,7 +56,10 @@ public sealed class MacOSSharedMemory : ISharedMemory
     private sealed unsafe class Mapping : IMappedMemory
     {
         private const int ProtRead = 0x1;
+        private const int ProtWrite = 0x2;
         private const int MapShared = 0x1;
+        private const int Eacces = 13;
+        private const int Eperm = 1;
         private const ulong Fioclex = 0x20006601; // _IO('f', 1): set close-on-exec.
         private static readonly nint MapFailed = -1;
 
@@ -73,8 +76,18 @@ public sealed class MacOSSharedMemory : ISharedMemory
                 throw new ArgumentOutOfRangeException(nameof(size), "Mapping size must be positive.");
             }
 
-            _address = mmap(0, (nuint)size, ProtRead, MapShared, fd, 0);
+            _address = mmap(0, (nuint)size, ProtRead | ProtWrite, MapShared, fd, 0);
             var mmapErrno = Marshal.GetLastPInvokeError();
+            if (_address == MapFailed && mmapErrno is Eacces or Eperm)
+            {
+                _address = mmap(0, (nuint)size, ProtRead, MapShared, fd, 0);
+                mmapErrno = Marshal.GetLastPInvokeError();
+            }
+            else
+            {
+                IsWritable = _address != MapFailed;
+            }
+
             if (_address == MapFailed)
             {
                 close(fd);
@@ -84,6 +97,8 @@ public sealed class MacOSSharedMemory : ISharedMemory
             _fd = fd;
             _size = size;
         }
+
+        public bool IsWritable { get; }
 
         public nint Address
         {

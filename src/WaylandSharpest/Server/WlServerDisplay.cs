@@ -12,9 +12,13 @@ public sealed class WlServerDisplay : IDisposable
 
     private WlServerDisplay(IWlServerTransport transport)
     {
+        Transport = transport;
         _impl = transport.CreateDisplay(this);
         EventLoop = new WlEventLoop(_impl.EventLoop, this);
     }
+
+    /// <summary>The transport this display runs on.</summary>
+    public IWlServerTransport Transport { get; }
 
     /// <summary>Creates a display on the default libwayland transport.</summary>
     public static WlServerDisplay Create() => Create(LibWaylandTransport.Instance);

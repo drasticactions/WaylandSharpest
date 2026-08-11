@@ -35,6 +35,30 @@ public sealed class SharedMemoryTests : IDisposable
         Assert.Equal(PageSize, mapping.Size);
         Assert.Equal(PageSize, mapping.Span.Length);
         AssertPattern(mapping.Span, seed: 7);
+
+        Assert.True(mapping.IsWritable);
+        unsafe
+        {
+            *(byte*)mapping.Address = 0xC3;
+        }
+
+        Assert.Equal(0xC3, mapping.Span[0]);
+    }
+
+    [Fact]
+    public void A_write_sealed_pool_maps_read_only()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Skip("memfd write seals are Linux-only.");
+        }
+
+        var shm = SharedMemory.CreateForPlatform();
+        var fd = Posix.CreateSealableMemfd(PageSize);
+
+        using var mapping = shm.Map(fd, PageSize);
+        Assert.False(mapping.IsWritable);
+        Assert.Equal(PageSize, mapping.Span.Length);
     }
 
     [Fact]
@@ -317,6 +341,28 @@ public sealed class SharedMemoryTests : IDisposable
             _ = OperatingSystem.IsLinux() ? LinuxClose(fd) : MacClose(fd);
         }
 
+        public static int CreateSealableMemfd(int size)
+        {
+            const uint MfdCloexec = 1;
+            const uint MfdAllowSealing = 2;
+            const int FAddSeals = 1033;
+            const int FSealWrite = 0x8;
+
+            var fd = LinuxMemfd("waylandsharpest-shm-sealed", MfdCloexec | MfdAllowSealing);
+            if (fd < 0)
+            {
+                throw new InvalidOperationException($"memfd_create failed: errno {Marshal.GetLastPInvokeError()}");
+            }
+
+            Truncate(fd, size);
+            if (LinuxFcntlArg(fd, FAddSeals, FSealWrite) != 0)
+            {
+                throw new InvalidOperationException($"F_ADD_SEALS failed: errno {Marshal.GetLastPInvokeError()}");
+            }
+
+            return fd;
+        }
+
         public static (int ReadEnd, int WriteEnd) Pipe()
         {
             var fds = stackalloc int[2];
@@ -343,6 +389,9 @@ public sealed class SharedMemoryTests : IDisposable
 
         [DllImport("libc", EntryPoint = "fcntl", SetLastError = true)]
         private static extern int LinuxFcntl(int fd, int cmd);
+
+        [DllImport("libc", EntryPoint = "fcntl", SetLastError = true)]
+        private static extern int LinuxFcntlArg(int fd, int cmd, int arg);
 
         [DllImport("libc", EntryPoint = "close", SetLastError = true)]
         private static extern int LinuxClose(int fd);
