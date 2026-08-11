@@ -27,8 +27,6 @@ public sealed class ObjectArgumentTests : LoopbackHarness
 
         protected override void HandleRequest(uint opcode, ReadOnlySpan<WlArg> args) => throw new NotSupportedException();
 
-        public static T? Decode<T>(nint handle) where T : WlResource => GetResource<T>(new WlArg { Ptr = handle });
-
         public static nint DecodeHandle(nint handle) => GetResourceHandle(new WlArg { Ptr = handle });
     }
 
@@ -185,14 +183,15 @@ public sealed class ObjectArgumentTests : LoopbackHarness
 
         Assert.NotNull(serverSurface);
         var handle = serverSurface!.RawHandle;
-        Assert.Same(serverSurface, ResourceProbe.Decode<WlSurfaceResource>(handle));
+        var id = serverSurface.Id;
+        Assert.Same(serverSurface, ServerClient.GetObject(id));
         Assert.Equal(handle, ResourceProbe.DecodeHandle(handle));
 
         surface.Dispose();
         PumpToServer();
 
         Assert.True(serverSurface.IsDestroyed);
-        Assert.Null(ResourceProbe.Decode<WlSurfaceResource>(handle));
+        Assert.Null(ServerClient.GetObject(id));
     }
 
     [Fact]

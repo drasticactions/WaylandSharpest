@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using Wayland.Native;
 
@@ -9,11 +8,6 @@ namespace Wayland.Server;
 /// </summary>
 public abstract unsafe class WlResource
 {
-    /// <summary>
-    /// Resources created by this library, keyed by transport handle.
-    /// </summary>
-    private static readonly ConcurrentDictionary<nint, WlResource> Owned = new();
-
     private readonly IWlResource _impl;
     private bool _destroyed;
 
@@ -22,7 +16,7 @@ public abstract unsafe class WlResource
     {
         Client = client;
         _impl = client.Impl.CreateResource(this, spec, version, id);
-        Owned[_impl.RawHandle] = this;
+        client.Owned[_impl.RawHandle] = this;
     }
 
     public WlClient Client { get; }
@@ -94,7 +88,7 @@ public abstract unsafe class WlResource
     internal void OnTransportDestroyed(nint rawHandle)
     {
         _destroyed = true;
-        Owned.TryRemove(rawHandle, out _);
+        Client.Owned.Remove(rawHandle);
         try
         {
             Destroyed?.Invoke(this, EventArgs.Empty);
@@ -126,22 +120,17 @@ public abstract unsafe class WlResource
     /// library did not create rather than reinterpreting their user
     /// data. Use <see cref="GetResourceHandle"/> to reach those.
     /// </summary>
-    protected static T? GetResource<T>(WlArg arg) where T : WlResource
+    protected T? GetResource<T>(WlArg arg) where T : WlResource
     {
         if (arg.Ptr == 0)
         {
             return null;
         }
 
-        return Owned.TryGetValue(arg.Ptr, out var resource) ? resource as T : null;
+        return Client.Owned.TryGetValue(arg.Ptr, out var resource) ? resource as T : null;
     }
 
-    /// <summary>
-    /// The wrapper for a transport resource handle, or <c>null</c> when the
-    /// resource belongs to another implementation.
-    /// </summary>
-    internal static WlResource? FromHandle(nint handle) =>
-        Owned.TryGetValue(handle, out var resource) ? resource : null;
+
 
     /// <summary>
     /// The raw <c>wl_resource*</c> of an object argument, regardless of owner.

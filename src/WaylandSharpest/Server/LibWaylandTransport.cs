@@ -532,8 +532,18 @@ internal sealed unsafe class LibWaylandClient : IWlClient
 
     public void Destroy() => LibWaylandServer.wl_client_destroy((wl_client*)RawHandle);
 
-    public IWlResource CreateResource(WlResource owner, WlInterfaceSpec spec, uint version, uint id) =>
-        new LibWaylandResource(owner, this, spec, version, id);
+    internal readonly Stack<LibWaylandResource> ResourcePool = new(LibWaylandResource.PoolLimit);
+
+    public IWlResource CreateResource(WlResource owner, WlInterfaceSpec spec, uint version, uint id)
+    {
+        if (ResourcePool.TryPop(out var recycled))
+        {
+            recycled.Reinitialize(owner, this, spec, version, id);
+            return recycled;
+        }
+
+        return new LibWaylandResource(owner, this, spec, version, id);
+    }
 
     public WlClientCredentials GetCredentials()
     {
@@ -563,8 +573,11 @@ internal sealed unsafe class LibWaylandClient : IWlClient
 
 internal sealed unsafe class LibWaylandResource : IWlResource
 {
-    private readonly WlResource _owner;
-    private readonly WlInterfaceSpec _spec;
+    internal const int PoolLimit = 64;
+
+    private WlResource _owner;
+    private WlInterfaceSpec _spec;
+    private LibWaylandClient _client;
     private nint _handle;
     private GCHandle _selfHandle;
 
@@ -572,6 +585,21 @@ internal sealed unsafe class LibWaylandResource : IWlResource
     {
         _owner = owner;
         _spec = spec;
+        _client = client;
+        _selfHandle = GCHandle.Alloc(this);
+        Attach(client, spec, version, id);
+    }
+
+    internal void Reinitialize(WlResource owner, LibWaylandClient client, WlInterfaceSpec spec, uint version, uint id)
+    {
+        _owner = owner;
+        _spec = spec;
+        _client = client;
+        Attach(client, spec, version, id);
+    }
+
+    private void Attach(LibWaylandClient client, WlInterfaceSpec spec, uint version, uint id)
+    {
         var resource = LibWaylandServer.wl_resource_create(
             (wl_client*)client.RawHandle, spec.NativePointer, (int)version, id);
         if (resource == null)
@@ -580,7 +608,6 @@ internal sealed unsafe class LibWaylandResource : IWlResource
         }
 
         _handle = (nint)resource;
-        _selfHandle = GCHandle.Alloc(this);
         var self = (void*)GCHandle.ToIntPtr(_selfHandle);
         LibWaylandServer.wl_resource_set_dispatcher(resource, &DispatchThunk, self, self, &DestroyThunk);
     }
@@ -660,13 +687,24 @@ internal sealed unsafe class LibWaylandResource : IWlResource
     private void HandleDestroyed()
     {
         var handle = _handle;
+        var owner = _owner;
+        var client = _client;
         _handle = 0;
-        if (_selfHandle.IsAllocated)
+        owner.OnTransportDestroyed(handle);
+
+        if (_handle != 0)
+        {
+            return;
+        }
+
+        if (client.ResourcePool.Count < PoolLimit)
+        {
+            client.ResourcePool.Push(this);
+        }
+        else if (_selfHandle.IsAllocated)
         {
             _selfHandle.Free();
         }
-
-        _owner.OnTransportDestroyed(handle);
     }
 }
 

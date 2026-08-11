@@ -10,6 +10,8 @@ public sealed class WlClient
     private readonly IWlClient _impl;
     private bool _destroyed;
 
+    internal readonly Dictionary<nint, WlResource> Owned = [];
+
     internal WlClient(IWlClient impl, WlServerDisplay? display)
     {
         _impl = impl;
@@ -62,7 +64,7 @@ public sealed class WlClient
     public WlResource? GetObject(uint id)
     {
         var handle = GetObjectHandle(id);
-        return handle == 0 ? null : WlResource.FromHandle(handle);
+        return handle == 0 ? null : Owned.GetValueOrDefault(handle);
     }
 
     /// <summary>Raw <c>wl_resource*</c> for the client's object <paramref name="id"/>, or 0.</summary>
