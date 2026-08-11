@@ -7,6 +7,13 @@ public interface IWlServerTransport
 {
     /// <summary>Creates the transport state behind a <see cref="WlServerDisplay"/>.</summary>
     IWlDisplay CreateDisplay(WlServerDisplay owner);
+
+    /// <summary>
+    /// The token table a fd-less transport mints its fd-slot values from, or
+    /// null for a socket-backed transport whose fd-slots are kernel
+    /// descriptors.
+    /// </summary>
+    IFdSlotTable? FdSlots => null;
 }
 
 /// <summary>Transport half of a <see cref="WlServerDisplay"/>.</summary>
