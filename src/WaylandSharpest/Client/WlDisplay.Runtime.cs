@@ -60,6 +60,23 @@ public sealed unsafe partial class WlDisplay
     public int Fd => LibWaylandClient.wl_display_get_fd((wl_display*)RawHandle);
 
     /// <summary>
+    /// Releases an fd-slot value an event on this connection delivered. For the
+    /// libwayland transport this is <c>close(2)</c>; a channel transport
+    /// releases the token. Never call <c>close(2)</c> directly on an
+    /// event-delivered fd-slot value.
+    /// </summary>
+    public void CloseFd(int fd)
+    {
+        if (fd >= 0)
+        {
+            _ = close(fd);
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "close", ExactSpelling = true)]
+    private static extern int close(int fd);
+
+    /// <summary>
     /// Creates an event queue. Proxies assigned to it deliver their events only
     /// when that queue is dispatched, which is what makes a second thread
     /// possible. The queue must outlive every proxy assigned to it.
