@@ -1,3 +1,6 @@
+using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
+
 namespace Wayland.Server.Managed;
 
 /// <summary>
@@ -8,12 +11,14 @@ namespace Wayland.Server.Managed;
 internal sealed class WlSemaphorePoll : IWlPoll
 {
     private readonly SemaphoreSlim _wake = new(0, 1);
+    private readonly Dictionary<int, PosixSignalRegistration> _signals = [];
+    private readonly ConcurrentQueue<int> _raised = new();
     private int _wakeRequested;
     private volatile bool _disposed;
 
     public bool SupportsFds => false;
 
-    public bool SupportsSignals => false;
+    public bool SupportsSignals => true;
 
     public int? PollableFd => null;
 
@@ -27,10 +32,29 @@ internal sealed class WlSemaphorePoll : IWlPoll
     }
 
     public void AddSignal(int signalNumber) =>
-        throw new PlatformNotSupportedException("This host cannot deliver signals to the event loop.");
+        _signals[signalNumber] = PosixSignalRegistration.Create(Portable(signalNumber), context =>
+        {
+            context.Cancel = true;
+            _raised.Enqueue(signalNumber);
+            Wake();
+        });
+
+    private static PosixSignal Portable(int signalNumber) => signalNumber switch
+    {
+        1 => PosixSignal.SIGHUP,
+        2 => PosixSignal.SIGINT,
+        3 => PosixSignal.SIGQUIT,
+        15 => PosixSignal.SIGTERM,
+        _ => throw new PlatformNotSupportedException(
+            $"This host delivers no signal {signalNumber} to the event loop."),
+    };
 
     public void RemoveSignal(int signalNumber)
     {
+        if (_signals.Remove(signalNumber, out var registration))
+        {
+            registration.Dispose();
+        }
     }
 
     public int Wait(Span<WlPollResult> results, int timeoutMs)
@@ -52,7 +76,13 @@ internal sealed class WlSemaphorePoll : IWlPoll
         }
 
         Volatile.Write(ref _wakeRequested, 0);
-        return 0;
+        var written = 0;
+        while (written < results.Length && _raised.TryDequeue(out var signalNumber))
+        {
+            results[written++] = WlPollResult.ForSignal(signalNumber);
+        }
+
+        return written;
     }
 
     public void Wake()
@@ -87,6 +117,12 @@ internal sealed class WlSemaphorePoll : IWlPoll
         }
 
         _disposed = true;
+        foreach (var registration in _signals.Values)
+        {
+            registration.Dispose();
+        }
+
+        _signals.Clear();
         _wake.Dispose();
     }
 }

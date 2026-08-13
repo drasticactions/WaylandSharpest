@@ -251,6 +251,17 @@ public sealed class SharedMemoryRegion : IFdSlotPayload
         }
     }
 
+    public bool IsReleased
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _disposed;
+            }
+        }
+    }
+
     /// <inheritdoc/>
     public void AddRef() => Interlocked.Increment(ref _refCount);
 

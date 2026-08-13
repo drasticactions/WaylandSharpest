@@ -354,6 +354,8 @@ internal sealed class ManagedDisplay : IWlDisplay
 
     private readonly List<WlListeningSocket> _sockets = [];
 
+    public bool SupportsLocalSocket => !OperatingSystem.IsWindows();
+
     public string AddSocketAuto()
     {
         var socket = WlListeningSocket.BindAuto();

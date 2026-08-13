@@ -39,6 +39,8 @@ public sealed class WlServerDisplay : IDisposable
 
     public WlEventLoop EventLoop { get; }
 
+    public bool SupportsLocalSocket => _impl.SupportsLocalSocket;
+
     /// <summary>Adds a socket with an automatically chosen name and returns it.</summary>
     public string AddSocketAuto() => _impl.AddSocketAuto();
 

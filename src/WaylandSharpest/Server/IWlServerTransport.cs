@@ -15,6 +15,8 @@ public interface IWlDisplay : IDisposable
     /// <summary>Native <c>wl_display*</c> for the libwayland transport; a transport-defined value otherwise.</summary>
     nint RawHandle { get; }
 
+    bool SupportsLocalSocket => true;
+
     IWlEventLoop EventLoop { get; }
 
     string AddSocketAuto();

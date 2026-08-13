@@ -45,6 +45,9 @@ public interface IMappedMemory : IDisposable
 /// <summary>Selects the <see cref="ISharedMemory"/> implementation for the host platform.</summary>
 public static class SharedMemory
 {
+
+    public static bool SupportsPlatformMemory => OperatingSystem.IsLinux() || OperatingSystem.IsMacOS();
+    
     /// <summary>
     /// The mmap-backed implementation for this host.
     /// </summary>
