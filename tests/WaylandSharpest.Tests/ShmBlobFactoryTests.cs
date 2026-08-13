@@ -29,7 +29,7 @@ public sealed class ShmBlobFactoryTests
             Assert.Skip("No anonymous-file mechanism on this platform.");
         }
 
-        var factory = ShmBlobs.ForTransport(LibWaylandTransport.Instance);
+        var factory = ShmBlobs.ForFdSlots(null);
         var content = Content();
         using var blob = factory.Create("waylandsharpest-blob-test", content);
         Assert.Equal((uint)content.Length, blob.Size);

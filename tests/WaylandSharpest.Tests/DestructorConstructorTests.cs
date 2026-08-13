@@ -9,8 +9,18 @@ namespace WaylandSharpest.Tests;
 /// child and destroys the sender, in one wire call. Three interfaces in
 /// wayland-protocols depend on it (color-management, drm-lease).
 /// </summary>
-public sealed class DestructorConstructorTests : LoopbackHarness
+public class DestructorConstructorTests : LoopbackHarness
 {
+    /// <summary>Runs against libwayland.</summary>
+    public DestructorConstructorTests()
+    {
+    }
+
+    /// <summary>Runs against the transport a twin supplies.</summary>
+    protected DestructorConstructorTests(global::Wayland.Server.IWlServerTransport transport) : base(transport)
+    {
+    }
+
     /// <summary>Exposes the protected proxy-registry lookup.</summary>
     private sealed class ProxyProbe : WlProxy
     {
@@ -83,3 +93,7 @@ public sealed class DestructorConstructorTests : LoopbackHarness
         Assert.False(child.IsDestroyed);
     }
 }
+
+/// <summary>The same tests, against the managed transport.</summary>
+[Trait("Transport", "Managed")]
+public sealed class DestructorConstructorTestsManaged() : DestructorConstructorTests(new global::Wayland.Server.ManagedTransport());

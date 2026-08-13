@@ -8,8 +8,18 @@ namespace WaylandSharpest.Tests;
 /// Full-stack tests: an in-process libwayland server and client connected over a
 /// socketpair, exercising the generated core-protocol bindings on both sides.
 /// </summary>
-public sealed class LoopbackTests : LoopbackHarness
+public class LoopbackTests : LoopbackHarness
 {
+    /// <summary>Runs against libwayland.</summary>
+    public LoopbackTests()
+    {
+    }
+
+    /// <summary>Runs against the transport a twin supplies.</summary>
+    protected LoopbackTests(global::Wayland.Server.IWlServerTransport transport) : base(transport)
+    {
+    }
+
     [Fact]
     public void Registry_advertises_globals()
     {
@@ -130,3 +140,7 @@ public sealed class LoopbackTests : LoopbackHarness
         Assert.IsType<InvalidOperationException>(ex.InnerException);
     }
 }
+
+/// <summary>The same tests, against the managed transport.</summary>
+[Trait("Transport", "Managed")]
+public sealed class LoopbackTestsManaged() : LoopbackTests(new global::Wayland.Server.ManagedTransport());

@@ -10,8 +10,18 @@ namespace WaylandSharpest.Tests;
 /// reachable from .NET.
 /// </summary>
 [Collection("libwayland log handler")]
-public sealed class LogHandlerTests : LoopbackHarness
+public class LogHandlerTests : LoopbackHarness
 {
+    /// <summary>Runs against libwayland.</summary>
+    public LogHandlerTests()
+    {
+    }
+
+    /// <summary>Runs against the transport a twin supplies.</summary>
+    protected LogHandlerTests(global::Wayland.Server.IWlServerTransport transport) : base(transport)
+    {
+    }
+
     public override void Dispose()
     {
         WaylandLog.SetHandler(WaylandLogSide.Client, null);
@@ -57,7 +67,11 @@ public sealed class LogHandlerTests : LoopbackHarness
         Server.FlushClients();
         Assert.ThrowsAny<WaylandException>(() => Client.Dispatch());
 
-        var message = Assert.Single(lines);
+        // The handler is process wide, so a protocol error another test provoked
+        // while it was installed lands here too. Which line arrived is not the
+        // point; that one about this error did, and that it is formatted, is.
+        var message = lines.FirstOrDefault(line => line.Contains("wl_registry"));
+        Assert.NotNull(message);
 
         // The format string carries %s/%d conversions; seeing them substituted
         // is the whole point of the vsnprintf path.
@@ -116,3 +130,11 @@ public sealed class LogHandlerTests : LoopbackHarness
         Assert.ThrowsAny<WaylandException>(() => Client.Dispatch());
     }
 }
+
+/// <summary>
+/// The same tests, against the managed transport. The log handler is process
+/// wide, so this shares the collection that keeps the two from running at once.
+/// </summary>
+[Trait("Transport", "Managed")]
+[Collection("libwayland log handler")]
+public sealed class LogHandlerTestsManaged() : LogHandlerTests(new global::Wayland.Server.ManagedTransport());

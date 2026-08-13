@@ -52,8 +52,33 @@ public sealed class WlClient
     /// </summary>
     public WlClientCredentials Credentials => Impl.GetCredentials();
 
+    /// <summary>
+    /// The peer's identity, or false for a client with no local process behind
+    /// it, such as one a remote channel carries.
+    /// </summary>
+    public bool TryGetCredentials(out WlClientCredentials credentials)
+    {
+        try
+        {
+            credentials = Impl.GetCredentials();
+            return true;
+        }
+        catch (NotSupportedException)
+        {
+            credentials = default;
+            return false;
+        }
+    }
+
     /// <summary>The client's connection file descriptor. The client owns it; do not close it.</summary>
     public int Fd => Impl.Fd;
+
+    /// <summary>
+    /// The token table this client's fd-slot values are minted from, or null
+    /// when they are kernel file descriptors. Use it to resolve a slot that
+    /// arrived in a request.
+    /// </summary>
+    public IFdSlotTable? FdSlots => Impl.FdSlots;
 
     /// <summary>
     /// The client's protocol object with the given id, or <c>null</c> if it has

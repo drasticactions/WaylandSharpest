@@ -42,7 +42,18 @@ public static unsafe class WlFixesSupport
                 "wl_fixes_handle_ack_global_remove requires libwayland 1.26 or newer; the loaded libwayland-server.so.0 does not export it.");
         }
 
+        HandleAckGlobalRemove(fixes.RawHandle, registryResourceHandle, globalName);
+    }
+
+    internal static void HandleAckGlobalRemove(nint fixesHandle, nint registryResourceHandle, uint globalName)
+    {
+        if (!IsSupported)
+        {
+            throw new WaylandException(
+                "wl_fixes_handle_ack_global_remove requires libwayland 1.26 or newer; the loaded libwayland-server.so.0 does not export it.");
+        }
+
         LibWaylandServer.wl_fixes_handle_ack_global_remove(
-            (wl_resource*)fixes.RawHandle, (wl_resource*)registryResourceHandle, globalName);
+            (wl_resource*)fixesHandle, (wl_resource*)registryResourceHandle, globalName);
     }
 }

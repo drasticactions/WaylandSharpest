@@ -9,8 +9,18 @@ namespace WaylandSharpest.Tests;
 /// Tests for the peer identity a global filter needs in order to decide
 /// anything beyond "which interface is this".
 /// </summary>
-public sealed class ClientIdentityTests : LoopbackHarness
+public class ClientIdentityTests : LoopbackHarness
 {
+    /// <summary>Runs against libwayland.</summary>
+    public ClientIdentityTests()
+    {
+    }
+
+    /// <summary>Runs against the transport a twin supplies.</summary>
+    protected ClientIdentityTests(global::Wayland.Server.IWlServerTransport transport) : base(transport)
+    {
+    }
+
     [DllImport("libc")]
     private static extern uint geteuid();
 
@@ -71,3 +81,7 @@ public sealed class ClientIdentityTests : LoopbackHarness
         Assert.Contains("wl_seat", announced);
     }
 }
+
+/// <summary>The same tests, against the managed transport.</summary>
+[Trait("Transport", "Managed")]
+public sealed class ClientIdentityTestsManaged() : ClientIdentityTests(new global::Wayland.Server.ManagedTransport());

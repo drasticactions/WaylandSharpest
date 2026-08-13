@@ -205,6 +205,14 @@ internal sealed unsafe class LibWaylandDisplay : IWlDisplay
         return new LibWaylandProtocolLogger(this, logger);
     }
 
+    public bool SupportsFixes => WlFixesSupport.IsSupported;
+
+    public void AckGlobalRemove(WlClient client, nint fixesHandle, nint registryHandle, uint globalName) =>
+        WlFixesSupport.HandleAckGlobalRemove(fixesHandle, registryHandle, globalName);
+
+    public void DestroyRegistry(WlClient client, nint registryHandle) =>
+        WlForeignResource.Destroy(registryHandle);
+
     public IReadOnlyList<WlClient> GetClients()
     {
         var clients = new List<WlClient>();

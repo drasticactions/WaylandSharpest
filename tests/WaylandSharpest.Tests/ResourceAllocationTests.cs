@@ -4,6 +4,7 @@ using Xunit;
 
 namespace WaylandSharpest.Tests;
 
+[LibWaylandOnly("It asserts that libwayland transport objects are recycled, which is a property of that transport and not of the protocol.")]
 public sealed class ResourceAllocationTests : LoopbackHarness
 {
     private const int Rounds = 200;

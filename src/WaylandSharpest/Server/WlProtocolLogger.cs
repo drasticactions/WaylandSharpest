@@ -4,16 +4,6 @@ using Wayland.Native;
 
 namespace Wayland.Server;
 
-/// <summary>Which way a logged protocol message was travelling.</summary>
-public enum WlProtocolMessageDirection
-{
-    /// <summary>Client to server.</summary>
-    Request,
-
-    /// <summary>Server to client.</summary>
-    Event,
-}
-
 /// <summary>Receives one protocol message. Must not throw.</summary>
 /// <param name="message">
 /// The message. Its storage belongs to the caller and is invalid once the
@@ -22,53 +12,72 @@ public enum WlProtocolMessageDirection
 public delegate void WlProtocolLogger(in WlProtocolMessage message);
 
 /// <summary>
-/// One logged protocol message: the structured form of
-/// <c>WAYLAND_DEBUG=1</c>. Valid only for the duration of the callback — the
-/// argument storage is libwayland's, so a copy taken outside the callback would
-/// be a use-after-free.
+/// One logged protocol message.
 /// </summary>
 public readonly ref struct WlProtocolMessage
 {
-    private readonly unsafe wl_protocol_logger_message* _message;
+    private readonly ReadOnlySpan<WlArg> _arguments;
 
-    internal unsafe WlProtocolMessage(WlProtocolMessageDirection direction, wl_protocol_logger_message* message)
+    internal WlProtocolMessage(
+        WlProtocolMessageDirection direction,
+        nint resourceHandle,
+        uint resourceId,
+        string interfaceName,
+        string messageName,
+        string signature,
+        int opcode,
+        ReadOnlySpan<WlArg> arguments)
     {
         Direction = direction;
-        _message = message;
+        ResourceHandle = resourceHandle;
+        ResourceId = resourceId;
+        InterfaceName = interfaceName;
+        MessageName = messageName;
+        Signature = signature;
+        Opcode = opcode;
+        _arguments = arguments;
+    }
+
+    internal unsafe WlProtocolMessage(WlProtocolMessageDirection direction, wl_protocol_logger_message* message)
+        : this(
+            direction,
+            (nint)message->resource,
+            LibWaylandServer.wl_resource_get_id(message->resource),
+            Marshal.PtrToStringUTF8((nint)LibWaylandServer.wl_resource_get_class(message->resource)) ?? string.Empty,
+            Marshal.PtrToStringUTF8((nint)message->message->name) ?? string.Empty,
+            Marshal.PtrToStringUTF8((nint)message->message->signature) ?? string.Empty,
+            message->message_opcode,
+            new ReadOnlySpan<WlArg>((WlArg*)message->arguments, message->arguments_count))
+    {
     }
 
     /// <summary>Which way the message was travelling.</summary>
     public WlProtocolMessageDirection Direction { get; }
 
-    /// <summary>Raw <c>wl_resource*</c> the message was sent on or to.</summary>
-    public unsafe nint ResourceHandle => (nint)_message->resource;
+    /// <summary>Transport handle of the object the message was sent on or to.</summary>
+    public nint ResourceHandle { get; }
 
     /// <summary>The protocol object id.</summary>
-    public unsafe uint ResourceId => LibWaylandServer.wl_resource_get_id(_message->resource);
+    public uint ResourceId { get; }
 
     /// <summary>The interface name of the object, e.g. <c>wl_surface</c>.</summary>
-    public unsafe string InterfaceName =>
-        Marshal.PtrToStringUTF8((nint)LibWaylandServer.wl_resource_get_class(_message->resource)) ?? string.Empty;
+    public string InterfaceName { get; }
 
     /// <summary>The message name, e.g. <c>commit</c>.</summary>
-    public unsafe string MessageName =>
-        Marshal.PtrToStringUTF8((nint)_message->message->name) ?? string.Empty;
+    public string MessageName { get; }
 
     /// <summary>The message's opcode within its interface.</summary>
-    public unsafe int Opcode => _message->message_opcode;
+    public int Opcode { get; }
 
     /// <summary>The arguments, to be read according to <see cref="Signature"/>.</summary>
-    public unsafe ReadOnlySpan<WlArg> Arguments =>
-        new((WlArg*)_message->arguments, _message->arguments_count);
+    public ReadOnlySpan<WlArg> Arguments => _arguments;
 
     /// <summary>
-    /// The libwayland signature of this message, for interpreting
-    /// <see cref="Arguments"/>: optional leading since-version digits, then one
-    /// letter per wire argument (<c>iufsonah</c>), each optionally prefixed with
-    /// <c>?</c> for nullable.
+    /// The signature of this message, for interpreting <see cref="Arguments"/>:
+    /// optional leading since-version digits, then one letter per wire argument
+    /// (<c>iufsonah</c>), each optionally prefixed with <c>?</c> for nullable.
     /// </summary>
-    public unsafe string Signature =>
-        Marshal.PtrToStringUTF8((nint)_message->message->signature) ?? string.Empty;
+    public string Signature { get; }
 
     /// <summary>Renders the message in the <c>WAYLAND_DEBUG</c> style.</summary>
     public override string ToString()

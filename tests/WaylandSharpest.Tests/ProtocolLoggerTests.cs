@@ -8,8 +8,18 @@ namespace WaylandSharpest.Tests;
 /// The structured form of <c>WAYLAND_DEBUG=1</c>: a callback per message with
 /// direction, object, opcode and decoded arguments.
 /// </summary>
-public sealed class ProtocolLoggerTests : LoopbackHarness
+public class ProtocolLoggerTests : LoopbackHarness
 {
+    /// <summary>Runs against libwayland.</summary>
+    public ProtocolLoggerTests()
+    {
+    }
+
+    /// <summary>Runs against the transport a twin supplies.</summary>
+    protected ProtocolLoggerTests(global::Wayland.Server.IWlServerTransport transport) : base(transport)
+    {
+    }
+
     private readonly record struct Entry(
         WlProtocolMessageDirection Direction,
         string Interface,
@@ -116,3 +126,7 @@ public sealed class ProtocolLoggerTests : LoopbackHarness
         Assert.IsType<InvalidOperationException>(ex.InnerException);
     }
 }
+
+/// <summary>The same tests, against the managed transport.</summary>
+[Trait("Transport", "Managed")]
+public sealed class ProtocolLoggerTestsManaged() : ProtocolLoggerTests(new global::Wayland.Server.ManagedTransport());

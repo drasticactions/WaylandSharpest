@@ -14,6 +14,7 @@ namespace WaylandSharpest.Tests;
 /// library. Set <c>WAYLANDSHARPEST_REQUIRE_LIBWAYLAND</c> to the minimum version
 /// the run is supposed to have, and that becomes a failure instead.
 /// </remarks>
+[LibWaylandOnly("It probes the loaded libwayland for symbols, which is what it exists to do.")]
 public sealed class LibwaylandFeatureTests : LoopbackHarness
 {
     private static readonly Version NamedQueues = new(1, 22, 91);

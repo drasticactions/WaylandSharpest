@@ -31,6 +31,28 @@ public sealed unsafe class WlInterfaceSpec
     }
 
     /// <summary>The wire-protocol interface name.</summary>
+    private bool _wiresRealized;
+
+    /// <summary>Decodes every message signature, so no send pays for the first one on a frame.</summary>
+    internal void RealizeWires()
+    {
+        if (_wiresRealized)
+        {
+            return;
+        }
+
+        _wiresRealized = true;
+        for (var i = 0; i < Requests.Count; i++)
+        {
+            _ = Requests[i].Wire;
+        }
+
+        for (var i = 0; i < Events.Count; i++)
+        {
+            _ = Events[i].Wire;
+        }
+    }
+
     public string Name { get; }
 
     /// <summary>The most recent version of the interface described by the protocol XML.</summary>
@@ -197,6 +219,14 @@ public sealed class WlMessageSpec
     internal Func<WlInterfaceSpec>?[] Types { get; }
 
     internal int WireArgCount => Types.Length;
+
+    private WlWireSignature? _wire;
+
+    /// <summary>
+    /// The decoded signature. Two threads racing here build equal instances, so
+    /// the unsynchronized publish is harmless.
+    /// </summary>
+    internal WlWireSignature Wire => _wire ??= WlWireSignature.Parse(this);
 
     public override string ToString() => $"{Name}({Signature})";
 }
