@@ -10,8 +10,18 @@ namespace WaylandSharpest.Tests;
 /// peer fails to decode and the connection dies pointing nowhere near the
 /// cause. The generated guards make it a local throw instead.
 /// </summary>
-public sealed class VersionGuardTests : LoopbackHarness
+public class VersionGuardTests : LoopbackHarness
 {
+    /// <summary>Runs against libwayland.</summary>
+    public VersionGuardTests()
+    {
+    }
+
+    /// <summary>Runs against the transport a twin supplies.</summary>
+    protected VersionGuardTests(global::Wayland.Server.IWlServerTransport transport) : base(transport)
+    {
+    }
+
     private TestFactoryResource? _serverFactory;
 
     private TestFactory BindAt(uint version)
@@ -88,3 +98,7 @@ public sealed class VersionGuardTests : LoopbackHarness
         Assert.Equal(1, poked);
     }
 }
+
+/// <summary>The same tests, against the managed transport.</summary>
+[Trait("Transport", "Managed")]
+public sealed class VersionGuardTestsManaged() : VersionGuardTests(new global::Wayland.Server.ManagedTransport());

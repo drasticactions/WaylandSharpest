@@ -71,8 +71,6 @@ namespace WaylandSharpest.Generator
             return w.ToString();
         }
 
-        // ---- shared helpers ----
-
         private InterfaceRef? Resolve(string? interfaceName, string context)
         {
             if (interfaceName is null)
@@ -186,8 +184,6 @@ namespace WaylandSharpest.Generator
 
             return name;
         }
-
-        // ---- proxy (client) side ----
 
         private void EmitProxyClass(CodeWriter w, InterfaceModel iface)
         {
@@ -563,8 +559,6 @@ namespace WaylandSharpest.Generator
             return plan;
         }
 
-        // ---- proxy events ----
-
         private sealed class EventPlan
         {
             public readonly List<string> Props = new List<string>();
@@ -787,8 +781,6 @@ namespace WaylandSharpest.Generator
             w.Close();
             CloseDeprecationSuppression(w, iface.Events);
         }
-
-        // ---- resource (server) side ----
 
         private void EmitResourceClass(CodeWriter w, InterfaceModel iface)
         {

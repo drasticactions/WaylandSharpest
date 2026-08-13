@@ -8,8 +8,18 @@ namespace WaylandSharpest.Tests;
 /// Tests for the registry name a global is advertised under, which protocols
 /// like river's and ext-transient-seat require a server to tell a client.
 /// </summary>
-public sealed class GlobalNameTests : LoopbackHarness
+public class GlobalNameTests : LoopbackHarness
 {
+    /// <summary>Runs against libwayland.</summary>
+    public GlobalNameTests()
+    {
+    }
+
+    /// <summary>Runs against the transport a twin supplies.</summary>
+    protected GlobalNameTests(global::Wayland.Server.IWlServerTransport transport) : base(transport)
+    {
+    }
+
     /// <summary>
     /// True when the loaded libwayland-server is new enough for
     /// <c>wl_global_get_name</c> (1.22). On an older library every call throws
@@ -91,3 +101,7 @@ public sealed class GlobalNameTests : LoopbackHarness
         Assert.Throws<ObjectDisposedException>(() => global.NameFor(ServerClient));
     }
 }
+
+/// <summary>The same tests, against the managed transport.</summary>
+[Trait("Transport", "Managed")]
+public sealed class GlobalNameTestsManaged() : GlobalNameTests(new global::Wayland.Server.ManagedTransport());

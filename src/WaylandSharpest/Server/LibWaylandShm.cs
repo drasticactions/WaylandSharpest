@@ -90,8 +90,7 @@ public readonly unsafe struct WlShmPoolRef
 
 /// <summary>
 /// Operations on <c>wl_resource</c>s owned by another implementation sharing the
-/// display. Bypasses the
-/// transport seam by definition.
+/// display. Bypasses the transport seam by definition.
 /// </summary>
 public static unsafe class WlForeignResource
 {

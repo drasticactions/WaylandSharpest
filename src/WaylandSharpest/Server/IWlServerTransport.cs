@@ -7,13 +7,6 @@ public interface IWlServerTransport
 {
     /// <summary>Creates the transport state behind a <see cref="WlServerDisplay"/>.</summary>
     IWlDisplay CreateDisplay(WlServerDisplay owner);
-
-    /// <summary>
-    /// The token table a fd-less transport mints its fd-slot values from, or
-    /// null for a socket-backed transport whose fd-slots are kernel
-    /// descriptors.
-    /// </summary>
-    IFdSlotTable? FdSlots => null;
 }
 
 /// <summary>Transport half of a <see cref="WlServerDisplay"/>.</summary>
@@ -35,6 +28,14 @@ public interface IWlDisplay : IDisposable
 
     WlClient CreateClient(int fd);
 
+    /// <summary>
+    /// Creates a client served by <paramref name="transport"/>, taking ownership
+    /// of it.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The transport cannot adopt a client transport.</exception>
+    WlClient CreateClient(IWlClientTransport transport) =>
+        throw new NotSupportedException($"{GetType().Name} does not accept client transports.");
+
     IWlGlobal CreateGlobal(WlGlobal owner, WlInterfaceSpec iface, int version);
 
     void Run();
@@ -52,6 +53,24 @@ public interface IWlDisplay : IDisposable
     /// <exception cref="NotSupportedException">The transport does not enumerate clients.</exception>
     IReadOnlyList<WlClient> GetClients() =>
         throw new NotSupportedException($"{GetType().Name} does not enumerate clients.");
+
+    /// <summary>Whether this transport services the <c>wl_fixes</c> requests below.</summary>
+    bool SupportsFixes => false;
+
+    /// <summary>
+    /// Services a client's <c>wl_fixes.ack_global_remove</c>.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The transport does not service wl_fixes.</exception>
+    void AckGlobalRemove(WlClient client, nint fixesHandle, nint registryHandle, uint globalName) =>
+        throw new NotSupportedException($"{GetType().Name} does not service wl_fixes.");
+
+    /// <summary>
+    /// Services a client's <c>wl_fixes.destroy_registry</c>: the registry
+    /// object is destroyed and its id released.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The transport does not service wl_fixes.</exception>
+    void DestroyRegistry(WlClient client, nint registryHandle) =>
+        throw new NotSupportedException($"{GetType().Name} does not service wl_fixes.");
 
     /// <summary>
     /// Invoked when a client connects, before it has sent any request.
@@ -160,6 +179,12 @@ public interface IWlClient
     /// <exception cref="NotSupportedException">The transport is not socket-backed.</exception>
     int Fd =>
         throw new NotSupportedException($"{GetType().Name} does not expose a connection file descriptor.");
+
+    /// <summary>
+    /// The token table this client's fd-slot values are minted from, or null
+    /// when they are kernel file descriptors.
+    /// </summary>
+    IFdSlotTable? FdSlots => null;
 
     /// <summary>Transport handle of the client's object <paramref name="id"/>, or 0.</summary>
     /// <exception cref="NotSupportedException">The transport does not support object lookup.</exception>

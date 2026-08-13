@@ -4,7 +4,10 @@ namespace Wayland.Server.Shm;
 
 /// <summary>
 /// An immutable shared-memory blob the compositor produced to send in an
-/// event's fd argument.
+/// event's fd argument — a keymap, a dmabuf format table, an ICC profile.
+/// <see cref="FdSlot"/> stays valid across any number of event sends, because
+/// the transport duplicates at marshal exactly as libwayland does for fds.
+/// Dispose releases the compositor's reference.
 /// </summary>
 public interface IShmBlob : IDisposable
 {
@@ -17,8 +20,10 @@ public interface IShmBlob : IDisposable
 
 /// <summary>
 /// Produces <see cref="IShmBlob"/>s for the compositor's event-direction fds.
-/// One implementation per transport family, selected through
-/// <see cref="ShmBlobs.ForTransport"/>.
+/// One implementation per fd-slot family, selected through
+/// <see cref="ShmBlobs.ForClient"/>: a client whose fd-slots are kernel file
+/// descriptors gets an anonymous file, a token client gets a slot minted on a
+/// host-owned region.
 /// </summary>
 public interface IShmBlobFactory
 {
@@ -26,16 +31,28 @@ public interface IShmBlobFactory
     IShmBlob Create(string debugName, ReadOnlySpan<byte> content);
 }
 
-/// <summary>Selects the <see cref="IShmBlobFactory"/> for a transport.</summary>
+/// <summary>Selects the <see cref="IShmBlobFactory"/> for a client.</summary>
 public static class ShmBlobs
 {
     /// <summary>
-    /// The factory matching <paramref name="transport"/>.
+    /// The factory matching <paramref name="client"/>: its token table when it
+    /// has one, otherwise the host's anonymous-file mechanism. One display can
+    /// serve clients of both kinds, so this is chosen per client and never
+    /// cached across them.
     /// </summary>
-    public static IShmBlobFactory ForTransport(IWlServerTransport transport)
+    public static IShmBlobFactory ForClient(WlClient client)
     {
-        ArgumentNullException.ThrowIfNull(transport);
-        if (transport.FdSlots is { } slots)
+        ArgumentNullException.ThrowIfNull(client);
+        return ForFdSlots(client.FdSlots);
+    }
+
+    /// <summary>
+    /// The factory for fd-slots minted from <paramref name="slots"/>, or for
+    /// kernel file descriptors when it is null.
+    /// </summary>
+    public static IShmBlobFactory ForFdSlots(IFdSlotTable? slots)
+    {
+        if (slots is not null)
         {
             return new TokenBlobFactory(slots);
         }
@@ -51,7 +68,7 @@ public static class ShmBlobs
         }
 
         throw new PlatformNotSupportedException(
-            "No anonymous-file mechanism on this platform.");
+            "No anonymous-file mechanism on this platform; the transport must supply a token table.");
     }
 }
 
@@ -102,7 +119,8 @@ public sealed class MemfdBlobFactory : IShmBlobFactory
 }
 
 /// <summary>
-/// macOS blob factory.
+/// The macOS blob factory: an unlinked temporary file per blob, the Darwin
+/// analog of a <c>memfd</c>.
 /// </summary>
 public sealed class AnonymousFileBlobFactory : IShmBlobFactory
 {
@@ -166,7 +184,8 @@ public sealed class AnonymousFileBlobFactory : IShmBlobFactory
 }
 
 /// <summary>
-/// Token-transport blob factory.
+/// The token-transport blob factory: each blob is a host-owned
+/// <see cref="SharedMemoryRegion"/> addressed by a minted slot.
 /// </summary>
 public sealed class TokenBlobFactory : IShmBlobFactory
 {

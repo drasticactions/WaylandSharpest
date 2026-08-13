@@ -18,9 +18,20 @@ public abstract class LoopbackHarness : IDisposable
     [DllImport("libc", SetLastError = true)]
     private static extern unsafe int socketpair(int domain, int type, int protocol, int* sv);
 
+    /// <summary>Runs against the default transport, <c>libwayland-server</c>.</summary>
     protected LoopbackHarness()
+        : this(LibWaylandTransport.Instance)
     {
-        Server = WlServerDisplay.Create();
+    }
+
+    /// <summary>
+    /// Runs against an explicit transport. Every derived class is expected to
+    /// have a twin that passes <see cref="ManagedTransport"/> here, so the same
+    /// tests cover both, or to say why it cannot.
+    /// </summary>
+    protected LoopbackHarness(IWlServerTransport transport)
+    {
+        Server = WlServerDisplay.Create(transport);
         int fd0, fd1;
         unsafe
         {

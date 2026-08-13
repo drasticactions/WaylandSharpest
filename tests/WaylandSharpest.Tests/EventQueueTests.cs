@@ -8,8 +8,18 @@ namespace WaylandSharpest.Tests;
 /// Event queues are what let a second thread service its own objects without
 /// stealing the main thread's events. Only the last test uses a real thread.
 /// </summary>
-public sealed class EventQueueTests : LoopbackHarness
+public class EventQueueTests : LoopbackHarness
 {
+    /// <summary>Runs against libwayland.</summary>
+    public EventQueueTests()
+    {
+    }
+
+    /// <summary>Runs against the transport a twin supplies.</summary>
+    protected EventQueueTests(global::Wayland.Server.IWlServerTransport transport) : base(transport)
+    {
+    }
+
     private WlSeatResource? _serverSeat;
 
     private WlGlobal PublishSeat() =>
@@ -254,3 +264,7 @@ public sealed class EventQueueTests : LoopbackHarness
         Assert.NotEqual(mainThread, handlerThread);
     }
 }
+
+/// <summary>The same tests, against the managed transport.</summary>
+[Trait("Transport", "Managed")]
+public sealed class EventQueueTestsManaged() : EventQueueTests(new global::Wayland.Server.ManagedTransport());

@@ -221,8 +221,6 @@ public abstract unsafe class WlProxy : IDisposable
         }
     }
 
-    // ---- Request marshalling (called by generated code) ----
-
     /// <summary>Sends a request that creates no object.</summary>
     protected void MarshalRequest(uint opcode, scoped ReadOnlySpan<WlArg> args) =>
         MarshalCore(opcode, args, null, Version, 0);
@@ -372,8 +370,6 @@ public abstract unsafe class WlProxy : IDisposable
         return 0;
     }
 
-    // ---- Event argument decoding (called by generated code) ----
-
     /// <summary>
     /// Decodes an object argument. Returns <c>null</c> for proxies this library
     /// did not create rather than reinterpreting their user data. Use
@@ -414,8 +410,6 @@ public abstract unsafe class WlProxy : IDisposable
         new ReadOnlySpan<byte>(array->data, result.Length).CopyTo(result);
         return result;
     }
-
-    // ---- Request argument building (called by generated code) ----
 
     /// <summary>Allocates a native UTF-8 copy of <paramref name="value"/> for a string argument.</summary>
     protected static nint AllocString(string? value) =>

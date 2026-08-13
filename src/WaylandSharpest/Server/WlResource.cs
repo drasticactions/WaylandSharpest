@@ -105,15 +105,11 @@ public abstract unsafe class WlResource
     /// </summary>
     protected void CompleteDestructorRequest() => Destroy();
 
-    // ---- Event sending (called by generated code) ----
-
     protected void PostEvent(uint opcode, scoped ReadOnlySpan<WlArg> args)
     {
         ObjectDisposedException.ThrowIf(_destroyed, this);
         _impl.PostEvent(opcode, args);
     }
-
-    // ---- Request argument decoding (called by generated code) ----
 
     /// <summary>
     /// Decodes an object argument. Returns <c>null</c> for resources this
@@ -153,8 +149,6 @@ public abstract unsafe class WlResource
         new ReadOnlySpan<byte>(array->data, result.Length).CopyTo(result);
         return result;
     }
-
-    // ---- Event argument building (called by generated code) ----
 
     protected static nint AllocString(string? value) =>
         value is null ? 0 : Marshal.StringToCoTaskMemUTF8(value);

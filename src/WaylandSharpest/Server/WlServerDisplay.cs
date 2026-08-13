@@ -56,6 +56,13 @@ public sealed class WlServerDisplay : IDisposable
     public WlClient CreateClient(int fd) => _impl.CreateClient(fd);
 
     /// <summary>
+    /// Creates a client served by <paramref name="transport"/>, taking
+    /// ownership of it. Use for clients that arrive over something other than a
+    /// connection file descriptor.
+    /// </summary>
+    public WlClient CreateClient(IWlClientTransport transport) => _impl.CreateClient(transport);
+
+    /// <summary>
     /// Raised when a client connects, before it has sent any request. Destroy
     /// the client from the handler to reject the connection.
     /// </summary>
@@ -99,6 +106,27 @@ public sealed class WlServerDisplay : IDisposable
     /// Dispose the returned registration to stop logging.
     /// </summary>
     public IDisposable AddProtocolLogger(WlProtocolLogger logger) => _impl.AddProtocolLogger(logger);
+
+    /// <summary>
+    /// Whether this display services <c>wl_fixes</c>. The managed transport
+    /// always does. The libwayland transport does from 1.26, which is where
+    /// <c>wl_fixes_handle_ack_global_remove</c> arrives.
+    /// </summary>
+    public bool SupportsFixes => _impl.SupportsFixes;
+
+    /// <summary>
+    /// Services a client's <c>wl_fixes.ack_global_remove</c> request, on
+    /// whichever transport this display runs.
+    /// </summary>
+    public void AckGlobalRemove(WlClient client, nint fixesHandle, nint registryHandle, uint globalName) =>
+        _impl.AckGlobalRemove(client, fixesHandle, registryHandle, globalName);
+
+    /// <summary>
+    /// Services a client's <c>wl_fixes.destroy_registry</c> request, on
+    /// whichever transport this display runs.
+    /// </summary>
+    public void DestroyRegistry(WlClient client, nint registryHandle) =>
+        _impl.DestroyRegistry(client, registryHandle);
 
     /// <summary>Publishes a global; <paramref name="onBind"/> is invoked when a client binds it.</summary>
     public WlGlobal CreateGlobal(WlInterfaceSpec iface, int version, WlGlobal.BindHandler onBind) =>
