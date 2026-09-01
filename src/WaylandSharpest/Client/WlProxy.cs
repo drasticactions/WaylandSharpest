@@ -237,6 +237,15 @@ public abstract unsafe class WlProxy : IDisposable
         MarshalCore(opcode, args, iface, Version, 0)!;
 
     /// <summary>
+    /// Sends a request with a typed <c>new_id</c> argument, rebinding
+    /// <paramref name="recycle"/> to the created object when it is a destroyed
+    /// wrapper of the same interface; otherwise a fresh wrapper is created. A
+    /// rebound wrapper keeps its event subscriptions and allocates nothing.
+    /// </summary>
+    protected WlProxy MarshalConstructor(uint opcode, scoped ReadOnlySpan<WlArg> args, WlInterfaceSpec iface, WlProxy? recycle) =>
+        MarshalCore(opcode, args, iface, Version, 0, recycle)!;
+
+    /// <summary>
     /// Sends a destructor request that also creates an object: the new proxy is
     /// returned and this proxy is destroyed atomically.
     /// </summary>
@@ -257,7 +266,7 @@ public abstract unsafe class WlProxy : IDisposable
     protected WlProxy MarshalBind(uint opcode, scoped ReadOnlySpan<WlArg> args, WlInterfaceSpec iface, uint version) =>
         MarshalCore(opcode, args, iface, version, 0)!;
 
-    private WlProxy? MarshalCore(uint opcode, scoped ReadOnlySpan<WlArg> args, WlInterfaceSpec? iface, uint version, uint flags)
+    private WlProxy? MarshalCore(uint opcode, scoped ReadOnlySpan<WlArg> args, WlInterfaceSpec? iface, uint version, uint flags, WlProxy? recycle = null)
     {
         ThrowIfDestroyed();
         fixed (WlArg* argsPtr = args)
@@ -280,9 +289,30 @@ public abstract unsafe class WlProxy : IDisposable
                 throw new WaylandException($"{Spec.Name}@{Id}: request opcode {opcode} failed to create a '{iface.Name}' object.");
             }
 
+            if (recycle is { _destroyed: true, _borrowed: false, _isWrapper: false } &&
+                ReferenceEquals(recycle.Spec, iface))
+            {
+                recycle.Rebind((nint)result, _queue);
+                return recycle;
+            }
+
             // The created object inherits this proxy's queue inside libwayland.
             return CreateWrapped(iface, (nint)result, Display, _queue);
         }
+    }
+
+    /// <summary>
+    /// Points a destroyed wrapper at a fresh native proxy. Deliberately not
+    /// registered in <see cref="Owned"/>, so a recycled object does not decode
+    /// out of another event's object argument — and does not pay for a map
+    /// insert on every reuse.
+    /// </summary>
+    private void Rebind(nint handle, WlEventQueue? inherited)
+    {
+        _handle = handle;
+        _destroyed = false;
+        SyncQueue(inherited);
+        AttachDispatcher();
     }
 
     /// <summary>
@@ -346,10 +376,12 @@ public abstract unsafe class WlProxy : IDisposable
             return 0;
         }
 
+        var isDestructor = false;
         try
         {
-            var argCount = opcode < proxy.Spec.Events.Count ? proxy.Spec.Events[(int)opcode].WireArgCount : 0;
-            proxy.HandleEvent(opcode, new ReadOnlySpan<WlArg>(args, argCount));
+            var spec = opcode < proxy.Spec.Events.Count ? proxy.Spec.Events[(int)opcode] : null;
+            isDestructor = spec is { IsDestructor: true };
+            proxy.HandleEvent(opcode, new ReadOnlySpan<WlArg>(args, spec?.WireArgCount ?? 0));
         }
         catch (Exception ex)
         {
@@ -367,7 +399,25 @@ public abstract unsafe class WlProxy : IDisposable
             }
         }
 
+        // Destroying a proxy inside its own dispatcher is the normal libwayland
+        // pattern for a destructor event; the handler may already have disposed.
+        if (isDestructor)
+        {
+            proxy.DestroyAfterDestructorEvent();
+        }
+
         return 0;
+    }
+
+    private void DestroyAfterDestructorEvent()
+    {
+        if (_destroyed || _borrowed)
+        {
+            return;
+        }
+
+        LibWaylandClient.wl_proxy_destroy((wl_proxy*)_handle);
+        MarkDestroyed();
     }
 
     /// <summary>

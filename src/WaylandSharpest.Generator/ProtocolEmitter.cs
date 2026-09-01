@@ -308,7 +308,8 @@ namespace WaylandSharpest.Generator
                     typesExpr = $"new global::System.Func<{SpecType}>?[] {{ {string.Join(", ", entries)} }}";
                 }
 
-                w.Line($"new {MessageType}(\"{message.Name}\", \"{message.BuildSignature()}\", {typesExpr}),");
+                var destructorExpr = message.IsDestructor ? ", isDestructor: true" : "";
+                w.Line($"new {MessageType}(\"{message.Name}\", \"{message.BuildSignature()}\", {typesExpr}{destructorExpr}),");
             }
 
             w.Outdent();
@@ -383,14 +384,26 @@ namespace WaylandSharpest.Generator
                 w.Line($"    (T){methodName}({forwardArgs});");
             }
 
+            if (plan.ConstructorIfaceExpr is not null && !plan.IsBindStyle && !request.IsDestructor)
+            {
+                w.Line();
+                w.Line(
+                    "/// <summary>Recycling overload: a destroyed <paramref name=\"recycle\"/> wrapper is rebound to " +
+                    "the created object and keeps its event subscriptions; null or a still-live wrapper yields a fresh one.</summary>");
+                w.Open($"public {plan.ReturnType} {methodName}({string.Join(", ", plan.Params.Concat([$"{plan.ReturnType}? recycle"]))})");
+                EmitVersionGuard(w, iface, request);
+                EmitMarshalBody(w, request, plan, "recycle");
+                w.Close();
+            }
+
             return methodName;
         }
 
-        private void EmitMarshalBody(CodeWriter w, MessageModel request, ArgPlan plan)
+        private void EmitMarshalBody(CodeWriter w, MessageModel request, ArgPlan plan, string? recycleExpr = null)
         {
             if (plan.WireCount == 0)
             {
-                w.Line(EmitMarshalCall(request, plan, "default"));
+                w.Line(EmitMarshalCall(request, plan, "default", recycleExpr));
                 return;
             }
 
@@ -411,7 +424,7 @@ namespace WaylandSharpest.Generator
                 w.Line(assign);
             }
 
-            w.Line(EmitMarshalCall(request, plan, "_args"));
+            w.Line(EmitMarshalCall(request, plan, "_args", recycleExpr));
 
             if (hasCleanup)
             {
@@ -426,7 +439,7 @@ namespace WaylandSharpest.Generator
             }
         }
 
-        private static string EmitMarshalCall(MessageModel request, ArgPlan plan, string argsExpr)
+        private static string EmitMarshalCall(MessageModel request, ArgPlan plan, string argsExpr, string? recycleExpr = null)
         {
             var opcode = $"{request.Opcode}u";
             if (plan.IsBindStyle)
@@ -436,6 +449,11 @@ namespace WaylandSharpest.Generator
 
             if (plan.ConstructorIfaceExpr is not null)
             {
+                if (recycleExpr is not null)
+                {
+                    return $"return ({plan.ReturnType})MarshalConstructor({opcode}, {argsExpr}, {plan.ConstructorIfaceExpr}, {recycleExpr});";
+                }
+
                 // A destructor request may still carry a new_id; the wire call
                 // creates the object and destroys the sender in one go.
                 var call = request.IsDestructor ? "MarshalDestructorConstructor" : "MarshalConstructor";

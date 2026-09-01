@@ -26,8 +26,8 @@ namespace WaylandProtocols
                 new global::Wayland.WlMessageSpec("make_child", "n?s", new global::System.Func<global::Wayland.WlInterfaceSpec>?[] { static () => global::WaylandProtocols.SampleChild.Interface!, null }),
                 new global::Wayland.WlMessageSpec("give_data", "ah", new global::System.Func<global::Wayland.WlInterfaceSpec>?[] { null, null }),
                 new global::Wayland.WlMessageSpec("set_label", "2s", new global::System.Func<global::Wayland.WlInterfaceSpec>?[] { null }),
-                new global::Wayland.WlMessageSpec("convert", "n", new global::System.Func<global::Wayland.WlInterfaceSpec>?[] { static () => global::WaylandProtocols.SampleChild.Interface! }),
-                new global::Wayland.WlMessageSpec("destroy", "", null),
+                new global::Wayland.WlMessageSpec("convert", "n", new global::System.Func<global::Wayland.WlInterfaceSpec>?[] { static () => global::WaylandProtocols.SampleChild.Interface! }, isDestructor: true),
+                new global::Wayland.WlMessageSpec("destroy", "", null, isDestructor: true),
             },
             new global::Wayland.WlMessageSpec[]
             {
@@ -76,6 +76,22 @@ namespace WaylandProtocols
             {
                 _args[1].Ptr = _s1;
                 return (global::WaylandProtocols.SampleChild)MarshalConstructor(1u, _args, global::WaylandProtocols.SampleChild.Interface);
+            }
+            finally
+            {
+                FreeString(_s1);
+            }
+        }
+
+        /// <summary>Recycling overload: a destroyed <paramref name="recycle"/> wrapper is rebound to the created object and keeps its event subscriptions; null or a still-live wrapper yields a fresh one.</summary>
+        public global::WaylandProtocols.SampleChild MakeChild(string? label, global::WaylandProtocols.SampleChild? recycle)
+        {
+            global::System.Span<global::Wayland.WlArg> _args = stackalloc global::Wayland.WlArg[2];
+            nint _s1 = AllocString(label);
+            try
+            {
+                _args[1].Ptr = _s1;
+                return (global::WaylandProtocols.SampleChild)MarshalConstructor(1u, _args, global::WaylandProtocols.SampleChild.Interface, recycle);
             }
             finally
             {
@@ -365,7 +381,7 @@ namespace WaylandProtocols
             1,
             new global::Wayland.WlMessageSpec[]
             {
-                new global::Wayland.WlMessageSpec("destroy", "", null),
+                new global::Wayland.WlMessageSpec("destroy", "", null, isDestructor: true),
             },
             global::System.Array.Empty<global::Wayland.WlMessageSpec>(),
             static (handle, display) => new SampleChild(handle, display));

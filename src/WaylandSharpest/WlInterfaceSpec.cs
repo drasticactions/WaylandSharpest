@@ -200,16 +200,24 @@ public sealed class WlMessageSpec
 {
     private static readonly Func<WlInterfaceSpec>?[] EmptyTypes = [];
 
-    public WlMessageSpec(string name, string signature, Func<WlInterfaceSpec>?[]? types = null)
+    public WlMessageSpec(string name, string signature, Func<WlInterfaceSpec>?[]? types = null, bool isDestructor = false)
     {
         Name = name;
         Signature = signature;
         Types = types ?? EmptyTypes;
+        IsDestructor = isDestructor;
     }
 
     public string Name { get; }
 
     public string Signature { get; }
+
+    /// <summary>
+    /// True for a message the protocol XML marks <c>type="destructor"</c>. A
+    /// destructor event ends the object; the runtime destroys the proxy after
+    /// dispatching it.
+    /// </summary>
+    public bool IsDestructor { get; }
 
     /// <summary>
     /// One entry per wire argument; non-null for typed <c>o</c>/<c>n</c> arguments.
