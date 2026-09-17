@@ -17,4 +17,12 @@ public sealed record ManagedTransportOptions
     /// reading while the compositor keeps sending grows the queue indefinitely.
     /// </summary>
     public int MaxOutgoingBytes { get; init; } = 16 * 1024 * 1024;
+
+    /// <summary>
+    /// Whether the display may listen on a local socket under
+    /// <c>$XDG_RUNTIME_DIR</c>. Off by default where the host has no such
+    /// socket, and a display without one still accepts clients on transports
+    /// the compositor supplies.
+    /// </summary>
+    public bool LocalSocket { get; init; } = !OperatingSystem.IsWindows() && !OperatingSystem.IsBrowser();
 }
