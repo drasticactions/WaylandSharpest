@@ -1,4 +1,3 @@
-using System.IO.MemoryMappedFiles;
 
 namespace Wayland.Server.Shm;
 
@@ -65,8 +64,7 @@ public sealed class TokenSharedMemory : ISharedMemory
     private sealed unsafe class View : IMappedMemory
     {
         private readonly SharedMemoryRegion _region;
-        private readonly MemoryMappedViewAccessor _accessor;
-        private readonly byte* _pointer;
+        private readonly NativeSection _section;
         private readonly int _size;
         private bool _disposed;
 
@@ -81,16 +79,13 @@ public sealed class TokenSharedMemory : ISharedMemory
             region.AddRef();
             try
             {
-                _accessor = region.CreateView(size, out var actual);
+                _section = region.RetainSection(size, out var actual);
                 if (actual < size)
                 {
-                    _accessor.Dispose();
+                    _section.Release();
                     throw new WaylandException($"Mapping of {size} bytes exceeds the {actual}-byte region.");
                 }
 
-                byte* pointer = null;
-                _accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref pointer);
-                _pointer = pointer;
                 _size = size;
             }
             catch
@@ -105,7 +100,9 @@ public sealed class TokenSharedMemory : ISharedMemory
             get
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
-                return new ReadOnlySpan<byte>(_pointer, _size);
+                return _region.IsLazy
+                    ? new ReadOnlySpan<byte>(_region.Pointer, Math.Min(_size, _region.Committed))
+                    : new ReadOnlySpan<byte>(_section.Pointer, _size);
             }
         }
 
@@ -114,7 +111,7 @@ public sealed class TokenSharedMemory : ISharedMemory
             get
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
-                return (nint)_pointer;
+                return _region.IsLazy ? (nint)_region.Pointer : (nint)_section.Pointer;
             }
         }
 
@@ -136,34 +133,48 @@ public sealed class TokenSharedMemory : ISharedMemory
             }
 
             _disposed = true;
-            _accessor.SafeMemoryMappedViewHandle.ReleasePointer();
-            _accessor.Dispose();
+            _section.Release();
             _region.Release();
         }
     }
 }
 
 /// <summary>
-/// A shared-memory region backed by a <see cref="MemoryMappedFile"/>,
-/// addressable through <see cref="IFdSlotTable"/> slots.
+/// A shared-memory region backed by a native memory section, addressable
+/// through <see cref="IFdSlotTable"/> slots. A view retains the section it
+/// was taken from, so a grown region's old section lives until the last view
+/// of it is disposed, and no file mapping is involved, which is what lets a
+/// region exist on a host with no mmap at all.
 /// </summary>
+/// <remarks>
+/// In the browser the region is lazy: a client's pool is often a reservation
+/// far larger than what it touches, wasm32 has four gigabytes of address
+/// space in all, and nothing there is sparse. The section then starts small
+/// and grows to the high-water mark <see cref="Touch"/> names, moving as it
+/// grows, so a lazy region's address is read through the region each time
+/// rather than held, and <see cref="Span"/> covers only what is committed.
+/// </remarks>
 public sealed class SharedMemoryRegion : IFdSlotPayload
 {
+    private const int LazyInitialBytes = 64 * 1024;
+
     private readonly object _lock = new();
-    private MemoryMappedFile _file;
-    private MemoryMappedViewAccessor _accessor;
+    private NativeSection _section;
     private int _size;
     private int _refCount;
     private bool _disposed;
 
-    /// <summary>Allocates a zero-filled region of <paramref name="size"/> bytes.</summary>
+    /// <summary>Allocates a zero-filled region of <paramref name="size"/> bytes, committed lazily where the host cannot afford a reservation.</summary>
     public SharedMemoryRegion(int size)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(size);
-        _file = MemoryMappedFile.CreateNew(mapName: null, size);
-        _accessor = _file.CreateViewAccessor(0, size, MemoryMappedFileAccess.ReadWrite);
+        IsLazy = OperatingSystem.IsBrowser();
+        _section = new NativeSection(IsLazy ? Math.Min(size, LazyInitialBytes) : size);
         _size = size;
     }
+
+    /// <summary>Whether the backing grows on demand rather than being allocated in full.</summary>
+    public bool IsLazy { get; }
 
     /// <summary>The current region size in bytes.</summary>
     public int Size
@@ -177,9 +188,34 @@ public sealed class SharedMemoryRegion : IFdSlotPayload
         }
     }
 
+    /// <summary>How many bytes from the start are backed by memory; the whole region unless it is lazy.</summary>
+    public int Committed
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _section.Size;
+            }
+        }
+    }
+
+    internal unsafe byte* Pointer
+    {
+        get
+        {
+            lock (_lock)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                return _section.Pointer;
+            }
+        }
+    }
+
     /// <summary>
-    /// The host's writable view of the current backing section, for the
-    /// transport that fills the region.
+    /// The host's writable view of the committed part of the current backing
+    /// section, for the transport that fills the region; a lazy region needs
+    /// <see cref="Touch"/> before a write past what is committed.
     /// </summary>
     public unsafe Span<byte> Span
     {
@@ -188,11 +224,29 @@ public sealed class SharedMemoryRegion : IFdSlotPayload
             lock (_lock)
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
-                byte* pointer = null;
-                _accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref pointer);
-                _accessor.SafeMemoryMappedViewHandle.ReleasePointer();
-                return new Span<byte>(pointer, _size);
+                return new Span<byte>(_section.Pointer, Math.Min(_size, _section.Size));
             }
+        }
+    }
+
+    /// <summary>Commits the region up to <paramref name="end"/> bytes, which a lazy region backs on demand and every other region already has.</summary>
+    public void Touch(int end)
+    {
+        lock (_lock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (end > _size)
+            {
+                throw new ArgumentOutOfRangeException(nameof(end), "Beyond the region.");
+            }
+
+            if (!IsLazy || end <= _section.Size)
+            {
+                return;
+            }
+
+            var grown = Math.Max(end, Math.Min(_size, (int)Math.Min(int.MaxValue, (long)_section.Size * 2)));
+            _section.Resize(grown);
         }
     }
 
@@ -215,39 +269,32 @@ public sealed class SharedMemoryRegion : IFdSlotPayload
                 return;
             }
 
-            var newFile = MemoryMappedFile.CreateNew(mapName: null, newSize);
-            var newAccessor = newFile.CreateViewAccessor(0, newSize, MemoryMappedFileAccess.ReadWrite);
-            unsafe
+            if (IsLazy)
             {
-                byte* source = null, destination = null;
-                _accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref source);
-                newAccessor.SafeMemoryMappedViewHandle.AcquirePointer(ref destination);
-                try
-                {
-                    Buffer.MemoryCopy(source, destination, newSize, _size);
-                }
-                finally
-                {
-                    _accessor.SafeMemoryMappedViewHandle.ReleasePointer();
-                    newAccessor.SafeMemoryMappedViewHandle.ReleasePointer();
-                }
+                _size = newSize;
+                return;
             }
 
-            _accessor.Dispose();
-            _file.Dispose();
-            _file = newFile;
-            _accessor = newAccessor;
+            var grown = new NativeSection(newSize);
+            unsafe
+            {
+                Buffer.MemoryCopy(_section.Pointer, grown.Pointer, newSize, _size);
+            }
+
+            _section.Release();
+            _section = grown;
             _size = newSize;
         }
     }
 
-    internal MemoryMappedViewAccessor CreateView(int size, out int actualSize)
+    internal NativeSection RetainSection(int size, out int actualSize)
     {
         lock (_lock)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             actualSize = Math.Min(size, _size);
-            return _file.CreateViewAccessor(0, actualSize, MemoryMappedFileAccess.ReadWrite);
+            _section.Retain();
+            return _section;
         }
     }
 
@@ -281,8 +328,7 @@ public sealed class SharedMemoryRegion : IFdSlotPayload
             }
 
             _disposed = true;
-            _accessor.Dispose();
-            _file.Dispose();
+            _section.Release();
         }
     }
 }
