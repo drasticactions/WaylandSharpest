@@ -34,10 +34,10 @@ internal static unsafe partial class Libc
     internal const int EINTR = 4;
 
     /// <summary>Non-blocking is a different bit on each kernel.</summary>
-    internal static int O_NONBLOCK { get; } = OperatingSystem.IsMacOS() ? 0x0004 : 0x800;
+    internal static int O_NONBLOCK { get; } = PlatformFacts.IsApple ? 0x0004 : 0x800;
 
     /// <summary>A read or write that would block reports a different number on each kernel.</summary>
-    internal static int EAGAIN { get; } = OperatingSystem.IsMacOS() ? 35 : 11;
+    internal static int EAGAIN { get; } = PlatformFacts.IsApple ? 35 : 11;
 
     internal static int Errno => Marshal.GetLastPInvokeError();
 

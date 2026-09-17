@@ -50,7 +50,7 @@ internal static unsafe partial class Sockets
     /// <summary>Matches libwayland's limit, which is what clients are written against.</summary>
     internal const int MaxFdsPerMessage = 28;
 
-    internal static bool IsMac => OperatingSystem.IsMacOS();
+    internal static bool IsMac => PlatformFacts.IsApple;
 
     internal static int SOL_SOCKET => IsMac ? 0xffff : 1;
 

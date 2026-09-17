@@ -44,12 +44,12 @@ internal static class WlPoll
 {
     internal static IWlPoll CreatePlatformDefault()
     {
-        if (OperatingSystem.IsLinux())
+        if (PlatformFacts.IsLinuxKernel)
         {
             return new WlEpollPoll();
         }
 
-        if (OperatingSystem.IsMacOS())
+        if (PlatformFacts.IsApple)
         {
             return new WlKqueuePoll();
         }

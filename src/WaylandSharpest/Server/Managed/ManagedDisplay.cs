@@ -354,10 +354,11 @@ internal sealed class ManagedDisplay : IWlDisplay
 
     private readonly List<WlListeningSocket> _sockets = [];
 
-    public bool SupportsLocalSocket => !OperatingSystem.IsWindows();
+    public bool SupportsLocalSocket => Options.LocalSocket;
 
     public string AddSocketAuto()
     {
+        ThrowIfNoLocalSocket();
         var socket = WlListeningSocket.BindAuto();
         Listen(socket);
         return socket.Name!;
@@ -366,7 +367,17 @@ internal sealed class ManagedDisplay : IWlDisplay
     public void AddSocket(string name)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
+        ThrowIfNoLocalSocket();
         Listen(WlListeningSocket.Bind(name));
+    }
+
+    private void ThrowIfNoLocalSocket()
+    {
+        if (!Options.LocalSocket)
+        {
+            throw new InvalidOperationException(
+                $"This transport has no local socket: {nameof(ManagedTransportOptions)}.{nameof(ManagedTransportOptions.LocalSocket)} is false.");
+        }
     }
 
     public void AddSocketFd(int fd) => Listen(WlListeningSocket.Adopt(fd));

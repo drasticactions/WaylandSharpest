@@ -16,7 +16,7 @@ public sealed unsafe class WlClientTransport : IWlClientTransport
     /// <summary>Takes ownership of a connected socket.</summary>
     public WlClientTransport(int fd)
     {
-        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
+        if (!PlatformFacts.IsLinuxKernel && !PlatformFacts.IsApple)
         {
             throw new PlatformNotSupportedException(
                 "Passing file descriptors over a socket needs Linux or macOS.");

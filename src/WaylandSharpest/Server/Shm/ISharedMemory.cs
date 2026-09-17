@@ -1,21 +1,30 @@
 namespace Wayland.Server.Shm;
 
 /// <summary>
-/// Maps a client-provided shared-memory fd-slot into the compositor's address space.
+/// Maps a client-provided shared-memory fd-slot into the compositor's address
+/// space. One implementation per host platform, selected through
+/// <see cref="SharedMemory.CreateForPlatform"/>; the <c>wl_shm</c> buffer path
+/// is the only consumer.
 /// </summary>
 public interface ISharedMemory
 {
     /// <summary>
     /// Maps <paramref name="size"/> bytes of the region referenced by
-    /// <paramref name="fd"/> read-only. Takes ownership of the fd-slot on every
-    /// path, including failure.
+    /// <paramref name="fd"/>, read-write when the descriptor permits it and
+    /// read-only otherwise (a sealed or read-only fd) — capture protocols
+    /// render into client shm buffers, which is why libwayland maps pools
+    /// read-write too. Takes ownership of the fd-slot on every path, including
+    /// failure — a rejected pool must not leak a descriptor.
     /// </summary>
     IMappedMemory Map(int fd, int size);
 
     /// <summary>
     /// Copies <paramref name="rows"/> rows of <paramref name="rowBytes"/> bytes
     /// from client-shared memory at <paramref name="source"/> to
-    /// <paramref name="destination"/>.
+    /// <paramref name="destination"/>, advancing each pointer by its stride per
+    /// row, without faulting the host process. Returns false — rather than
+    /// raising SIGBUS — when the source cannot be read; the destination
+    /// contents are then undefined.
     /// </summary>
     bool TryCopyRows(nint destination, int destinationStride, nint source, int sourceStride, int rowBytes, int rows);
 }
@@ -37,7 +46,9 @@ public interface IMappedMemory : IDisposable
 
     /// <summary>
     /// Maps the same region again at <paramref name="newSize"/> and returns the
-    /// new mapping (<c>wl_shm_pool.resize</c>).
+    /// new mapping (<c>wl_shm_pool.resize</c>). This mapping — and every
+    /// address resolved from it — stays valid until disposed, so a resize never
+    /// moves or unmaps an address already handed out.
     /// </summary>
     IMappedMemory Remap(int newSize);
 }
@@ -45,25 +56,32 @@ public interface IMappedMemory : IDisposable
 /// <summary>Selects the <see cref="ISharedMemory"/> implementation for the host platform.</summary>
 public static class SharedMemory
 {
-
-    public static bool SupportsPlatformMemory => OperatingSystem.IsLinux() || OperatingSystem.IsMacOS();
-    
     /// <summary>
-    /// The mmap-backed implementation for this host.
+    /// Whether this host has an mmap-backed implementation at all. False on
+    /// Windows, where a client's pool fd is never a kernel descriptor, so a
+    /// compositor asks before it builds one rather than catching the throw.
+    /// </summary>
+    public static bool SupportsPlatformMemory => PlatformFacts.IsLinuxKernel || PlatformFacts.IsApple;
+
+    /// <summary>
+    /// The mmap-backed implementation for this host. Throws
+    /// <see cref="PlatformNotSupportedException"/> where client pool fds do not
+    /// exist as kernel descriptors; a token-based transport constructs its
+    /// <see cref="ISharedMemory"/> against its own handle table instead.
     /// </summary>
     public static ISharedMemory CreateForPlatform()
     {
-        if (OperatingSystem.IsLinux())
+        if (PlatformFacts.IsLinuxKernel)
         {
             return new LinuxSharedMemory();
         }
 
-        if (OperatingSystem.IsMacOS())
+        if (PlatformFacts.IsApple)
         {
             return new MacOSSharedMemory();
         }
 
         throw new PlatformNotSupportedException(
-            "No mmap-backed shared memory on this platform.");
+            "No mmap-backed shared memory on this platform; use a transport-supplied implementation.");
     }
 }

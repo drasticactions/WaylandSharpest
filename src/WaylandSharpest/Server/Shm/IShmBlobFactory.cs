@@ -57,12 +57,12 @@ public static class ShmBlobs
             return new TokenBlobFactory(slots);
         }
 
-        if (OperatingSystem.IsLinux())
+        if (PlatformFacts.IsLinuxKernel)
         {
             return new MemfdBlobFactory();
         }
 
-        if (OperatingSystem.IsMacOS())
+        if (PlatformFacts.IsApple)
         {
             return new AnonymousFileBlobFactory();
         }
@@ -72,14 +72,42 @@ public static class ShmBlobs
     }
 }
 
-/// <summary>The Linux blob factory: a sealed-size <c>memfd</c> per blob.</summary>
+/// <summary>
+/// The Linux blob factory: a sealed-size <c>memfd</c> per blob. Bionic gained
+/// <c>memfd_create</c> at API 30, so where it is absent the blob is an unlinked
+/// temporary file instead, as on Darwin.
+/// </summary>
 public sealed class MemfdBlobFactory : IShmBlobFactory
 {
+    private const int ENOSYS = 38;
+    private static bool s_memfdAbsent;
+
     /// <inheritdoc/>
     public unsafe IShmBlob Create(string debugName, ReadOnlySpan<byte> content)
     {
         ArgumentOutOfRangeException.ThrowIfZero(content.Length);
-        var fd = memfd_create(debugName, 1);
+        if (s_memfdAbsent)
+        {
+            return CreateTemporaryFile(debugName, content);
+        }
+
+        int fd;
+        try
+        {
+            fd = memfd_create(debugName, 1);
+        }
+        catch (EntryPointNotFoundException)
+        {
+            s_memfdAbsent = true;
+            return CreateTemporaryFile(debugName, content);
+        }
+
+        if (fd < 0 && Marshal.GetLastPInvokeError() == ENOSYS)
+        {
+            s_memfdAbsent = true;
+            return CreateTemporaryFile(debugName, content);
+        }
+
         if (fd < 0 || ftruncate(fd, content.Length) != 0)
         {
             if (fd >= 0)
@@ -102,6 +130,51 @@ public sealed class MemfdBlobFactory : IShmBlobFactory
         return new FdBlob(fd, (uint)content.Length, static fd => close(fd));
     }
 
+    private static unsafe IShmBlob CreateTemporaryFile(string debugName, ReadOnlySpan<byte> content)
+    {
+        var template = System.Text.Encoding.UTF8.GetBytes(
+            Path.Combine(Path.GetTempPath(), $"{debugName}-XXXXXX\0"));
+        int fd;
+        string path;
+        fixed (byte* p = template)
+        {
+            fd = mkstemp(p);
+            if (fd < 0)
+            {
+                throw new WaylandException($"mkstemp for '{debugName}' failed: errno {Marshal.GetLastPInvokeError()}");
+            }
+
+            path = System.Text.Encoding.UTF8.GetString(template, 0, template.Length - 1);
+        }
+
+        Managed.Interop.Libc.SetCloseOnExec(fd);
+        unlink(path);
+
+        if (ftruncate(fd, content.Length) != 0)
+        {
+            close(fd);
+            throw new WaylandException($"ftruncate of '{debugName}' failed: errno {Marshal.GetLastPInvokeError()}");
+        }
+
+        fixed (byte* bytes = content)
+        {
+            var offset = 0;
+            while (offset < content.Length)
+            {
+                var wrote = (int)pwrite(fd, bytes + offset, (nuint)(content.Length - offset), offset);
+                if (wrote <= 0)
+                {
+                    close(fd);
+                    throw new WaylandException($"write to '{debugName}' failed: errno {Marshal.GetLastPInvokeError()}");
+                }
+
+                offset += wrote;
+            }
+        }
+
+        return new FdBlob(fd, (uint)content.Length, static fd => close(fd));
+    }
+
     [DllImport("libc", SetLastError = true)]
     private static extern int memfd_create([MarshalAs(UnmanagedType.LPUTF8Str)] string name, uint flags);
 
@@ -116,6 +189,15 @@ public sealed class MemfdBlobFactory : IShmBlobFactory
 
     [DllImport("libc", SetLastError = true)]
     private static extern int close(int fd);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern unsafe int mkstemp(byte* template);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int unlink([MarshalAs(UnmanagedType.LPUTF8Str)] string path);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern unsafe nint pwrite(int fd, byte* buf, nuint count, long offset);
 }
 
 /// <summary>
