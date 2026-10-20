@@ -27,10 +27,16 @@ internal static class GeneratorTestHelper
         params (string Path, string Text)[] files) =>
         Run(referenceRuntime: true, globalOptions, files);
 
+    /// <summary>Runs the generator with XML doc comments parsed and checked, as <c>GenerateDocumentationFile</c> does.</summary>
+    public static (GeneratorDriverRunResult Result, Compilation Output) RunWithDocumentation(
+        params (string Path, string Text)[] files) =>
+        Run(referenceRuntime: true, globalOptions: null, files, DocumentationMode.Diagnose);
+
     private static (GeneratorDriverRunResult Result, Compilation Output) Run(
         bool referenceRuntime,
         Dictionary<string, string>? globalOptions,
-        params (string Path, string Text)[] files)
+        (string Path, string Text)[] files,
+        DocumentationMode documentationMode = DocumentationMode.Parse)
     {
         var references = TrustedPlatformReferences();
         if (referenceRuntime)
@@ -50,6 +56,7 @@ internal static class GeneratorTestHelper
 
         GeneratorDriver driver = CSharpGeneratorDriver.Create(
             [new WaylandProtocolGenerator().AsSourceGenerator()],
+            parseOptions: new CSharpParseOptions(documentationMode: documentationMode),
             optionsProvider: globalOptions is null ? null : new TestOptionsProvider(globalOptions))
             .AddAdditionalTexts(additionalTexts);
         driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _);

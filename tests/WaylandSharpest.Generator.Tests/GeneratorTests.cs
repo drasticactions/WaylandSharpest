@@ -168,6 +168,22 @@ public class GeneratorTests
     }
 
     [Fact]
+    public void Generated_code_raises_no_missing_doc_warnings()
+    {
+        var wayland = File.ReadAllText(GeneratorTestHelper.FixturePath("wayland.xml"));
+        var xdgShell = File.ReadAllText(GeneratorTestHelper.FixturePath("xdg-shell.xml"));
+
+        // A consumer with GenerateDocumentationFile on, but without CS1591 in NoWarn.
+        var (result, output) = GeneratorTestHelper.RunWithDocumentation(
+            ("sample.xml", SampleProtocol),
+            ("wayland.xml", wayland),
+            ("xdg-shell.xml", xdgShell));
+
+        Assert.Empty(result.Diagnostics);
+        Assert.Empty(output.GetDiagnostics(TestContext.Current.CancellationToken).Where(d => d.Id == "CS1591"));
+    }
+
+    [Fact]
     public void Unrelated_xml_is_ignored()
     {
         var (result, _) = GeneratorTestHelper.Run(
