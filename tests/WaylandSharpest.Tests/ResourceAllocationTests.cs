@@ -64,7 +64,7 @@ public sealed class ResourceAllocationTests : LoopbackHarness
         client.Destroy();
 
         Assert.True(transport.Closed);
-        Assert.Equal(0, transport.ResourcePool.Count);
+        Assert.True(transport.ResourcePool.Count == 0, $"{transport.ResourcePool.Count} wrappers are still pooled");
     }
 
     [Fact]

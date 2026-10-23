@@ -250,6 +250,7 @@ namespace WaylandProtocols
         }
 
         /// <summary>Raised when the client sends the 'set_mode' request.</summary>
+        [global::System.Obsolete("Pass an ISampleThingHandler to the constructor. Request events are being removed.")]
         public event global::System.EventHandler<SetModeEventArgs>? SetMode;
 
         /// <summary>Arguments of the 'make_child' event.</summary>
@@ -267,6 +268,7 @@ namespace WaylandProtocols
         }
 
         /// <summary>Raised when the client sends the 'make_child' request.</summary>
+        [global::System.Obsolete("Pass an ISampleThingHandler to the constructor. Request events are being removed.")]
         public event global::System.EventHandler<MakeChildEventArgs>? MakeChild;
 
         /// <summary>Arguments of the 'give_data' event.</summary>
@@ -283,6 +285,7 @@ namespace WaylandProtocols
         }
 
         /// <summary>Raised when the client sends the 'give_data' request.</summary>
+        [global::System.Obsolete("Pass an ISampleThingHandler to the constructor. Request events are being removed.")]
         public event global::System.EventHandler<GiveDataEventArgs>? GiveData;
 
         /// <summary>Arguments of the 'set_label' event.</summary>
@@ -316,6 +319,7 @@ namespace WaylandProtocols
         }
 
         /// <summary>Raised when the client sends the 'convert' request. The resource is destroyed automatically after this event.</summary>
+        [global::System.Obsolete("Pass an ISampleThingHandler to the constructor. Request events are being removed.")]
         public event global::System.EventHandler<ConvertEventArgs>? Convert;
 
         /// <summary>Arguments of the 'destroy' event.</summary>
@@ -324,6 +328,7 @@ namespace WaylandProtocols
         }
 
         /// <summary>Raised when the client sends the 'destroy' request. The resource is destroyed automatically after this event.</summary>
+        [global::System.Obsolete("Pass an ISampleThingHandler to the constructor. Request events are being removed.")]
         public event global::System.EventHandler<DestroyRequestEventArgs>? DestroyRequest;
 
         /// <summary>Sends the 'state' event to the client.</summary>
@@ -512,8 +517,10 @@ namespace WaylandProtocols
         }
 
         /// <summary>Raised when the client sends the 'destroy' request. The resource is destroyed automatically after this event.</summary>
+        [global::System.Obsolete("Pass an ISampleChildHandler to the constructor. Request events are being removed.")]
         public event global::System.EventHandler<DestroyRequestEventArgs>? DestroyRequest;
 
+        #pragma warning disable CS0618
         protected override void HandleRequest(uint opcode, global::System.ReadOnlySpan<global::Wayland.WlArg> args)
         {
             var handler = _handler;
@@ -532,6 +539,7 @@ namespace WaylandProtocols
                     break;
             }
         }
+        #pragma warning restore CS0618
     }
 
     /// <summary>Receives every request of a 'sample_child' resource. Pass it to the SampleChildResource constructor, so that a request cannot go unhandled.</summary>

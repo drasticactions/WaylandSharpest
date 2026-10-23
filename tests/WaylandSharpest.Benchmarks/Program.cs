@@ -11,6 +11,68 @@ internal static class Program
     [DllImport("libc", SetLastError = true)]
     private static extern unsafe int socketpair(int domain, int type, int protocol, int* sv);
 
+    private sealed class DamageCounter : IWlCompositorHandler, IWlSurfaceHandler
+    {
+        public long Count;
+
+        void IWlCompositorHandler.CreateSurface(WlCompositorResource resource, in WlCompositorResource.CreateSurfaceEventArgs args) =>
+            _ = new WlSurfaceResource(resource.Client, resource.Version, args.Id, this);
+
+        void IWlCompositorHandler.CreateRegion(WlCompositorResource resource, in WlCompositorResource.CreateRegionEventArgs args)
+        {
+        }
+
+        void IWlCompositorHandler.Release(WlCompositorResource resource)
+        {
+        }
+
+        void IWlSurfaceHandler.Damage(WlSurfaceResource resource, in WlSurfaceResource.DamageEventArgs args) => Count++;
+
+        void IWlSurfaceHandler.Destroy(WlSurfaceResource resource)
+        {
+        }
+
+        void IWlSurfaceHandler.Attach(WlSurfaceResource resource, in WlSurfaceResource.AttachEventArgs args)
+        {
+        }
+
+        void IWlSurfaceHandler.Frame(WlSurfaceResource resource, in WlSurfaceResource.FrameEventArgs args)
+        {
+        }
+
+        void IWlSurfaceHandler.SetOpaqueRegion(WlSurfaceResource resource, in WlSurfaceResource.SetOpaqueRegionEventArgs args)
+        {
+        }
+
+        void IWlSurfaceHandler.SetInputRegion(WlSurfaceResource resource, in WlSurfaceResource.SetInputRegionEventArgs args)
+        {
+        }
+
+        void IWlSurfaceHandler.Commit(WlSurfaceResource resource)
+        {
+        }
+
+        void IWlSurfaceHandler.SetBufferTransform(WlSurfaceResource resource, in WlSurfaceResource.SetBufferTransformEventArgs args)
+        {
+        }
+
+        void IWlSurfaceHandler.SetBufferScale(WlSurfaceResource resource, in WlSurfaceResource.SetBufferScaleEventArgs args)
+        {
+        }
+
+        void IWlSurfaceHandler.DamageBuffer(WlSurfaceResource resource, in WlSurfaceResource.DamageBufferEventArgs args)
+        {
+        }
+
+        void IWlSurfaceHandler.Offset(WlSurfaceResource resource, in WlSurfaceResource.OffsetEventArgs args)
+        {
+        }
+
+        void IWlSurfaceHandler.GetRelease(WlSurfaceResource resource, in WlSurfaceResource.GetReleaseEventArgs args)
+        {
+        }
+    }
+
     private static int Main(string[] args)
     {
         var iterations = args.Length > 0 ? int.Parse(args[0]) : 1_000_000;
@@ -43,17 +105,10 @@ internal static class Program
 
     private static int Run(WlServerDisplay server, WlDisplay client, int iterations, int batch)
     {
-        var damageCount = 0L;
+        var counter = new DamageCounter();
         WlSeatResource? serverSeat = null;
         using var compositorGlobal = server.CreateGlobal(WlCompositor.Interface, 6, (c, version, id) =>
-        {
-            var compositor = new WlCompositorResource(c, version, id);
-            compositor.CreateSurface += (_, e) =>
-            {
-                var surface = new WlSurfaceResource(compositor.Client, compositor.Version, e.Id);
-                surface.Damage += (_, _) => damageCount++;
-            };
-        });
+            _ = new WlCompositorResource(c, version, id, counter));
         using var seatGlobal = server.CreateGlobal(WlSeat.Interface, 5, (c, version, id) =>
         {
             serverSeat = new WlSeatResource(c, version, id);
@@ -104,8 +159,8 @@ internal static class Program
             server.EventLoop.Dispatch(0);
         }
 
-        RunPass("inbound  (wl_surface.damage)", warmup: true, iterations / 10, () => damageCount, InboundBody, InboundDrain);
-        RunPass("inbound  (wl_surface.damage)", warmup: false, iterations, () => damageCount, InboundBody, InboundDrain);
+        RunPass("inbound  (wl_surface.damage)", warmup: true, iterations / 10, () => counter.Count, InboundBody, InboundDrain);
+        RunPass("inbound  (wl_surface.damage)", warmup: false, iterations, () => counter.Count, InboundBody, InboundDrain);
 
         if (serverSeat is null)
         {
