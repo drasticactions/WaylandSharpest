@@ -32,6 +32,24 @@ internal sealed unsafe class LibWaylandDisplay : IWlDisplay
     private readonly WlServerDisplay _owner;
     private nint _handle;
 
+    /// <summary>
+    /// Live displays by native pointer, so a callback that carries only a
+    /// wl_resource (a foreign destroy listener) can capture an exception on
+    /// the display that owns it instead of unwinding into libwayland.
+    /// </summary>
+    private static readonly ConcurrentDictionary<nint, LibWaylandDisplay> Live = new();
+
+    internal static WlServerDisplay? OwnerOf(wl_resource* resource)
+    {
+        var client = LibWaylandServer.wl_resource_get_client(resource);
+        if (client == null)
+        {
+            return null;
+        }
+
+        return Live.TryGetValue((nint)LibWaylandServer.wl_client_get_display(client), out var display) ? display._owner : null;
+    }
+
     internal LibWaylandDisplay(WlServerDisplay owner)
     {
         _owner = owner;
@@ -42,6 +60,7 @@ internal sealed unsafe class LibWaylandDisplay : IWlDisplay
         }
 
         _handle = (nint)display;
+        Live[_handle] = this;
         EventLoop = new LibWaylandEventLoop((nint)LibWaylandServer.wl_display_get_event_loop(display));
     }
 
@@ -237,6 +256,7 @@ internal sealed unsafe class LibWaylandDisplay : IWlDisplay
 
         LibWaylandServer.wl_display_destroy_clients((wl_display*)_handle);
         LibWaylandServer.wl_display_destroy((wl_display*)_handle);
+        Live.TryRemove(_handle, out _);
         _handle = 0;
 
         if (_clientCreatedBlock != null)
@@ -279,7 +299,16 @@ internal sealed unsafe class LibWaylandDisplay : IWlDisplay
         if (NativeListener.Target<LibWaylandDisplay>(listener) is { } display &&
             display._clients.TryRemove((nint)data, out var client))
         {
-            client.OnTransportDestroyed();
+            (client.Impl as LibWaylandClient)?.Close();
+            try
+            {
+                client.OnTransportDestroyed();
+            }
+            catch (Exception ex)
+            {
+                // A throwing Destroyed handler must not unwind into libwayland.
+                display._owner.CaptureDispatchException(ex);
+            }
         }
 
         NativeListener.Free((NativeListener*)listener);
@@ -542,6 +571,22 @@ internal sealed unsafe class LibWaylandClient : IWlClient
 
     internal readonly Stack<LibWaylandResource> ResourcePool = new(LibWaylandResource.PoolLimit);
 
+    /// <summary>
+    /// True once the native client's destroy signal has fired. libwayland
+    /// destroys the client's resources after that signal, and a wrapper
+    /// pooled then would keep its handle, and the graph behind it, forever.
+    /// </summary>
+    internal bool Closed { get; private set; }
+
+    internal void Close()
+    {
+        Closed = true;
+        while (ResourcePool.TryPop(out var pooled))
+        {
+            pooled.ReleaseHandle();
+        }
+    }
+
     public IWlResource CreateResource(WlResource owner, WlInterfaceSpec spec, uint version, uint id)
     {
         if (ResourcePool.TryPop(out var recycled))
@@ -705,11 +750,21 @@ internal sealed unsafe class LibWaylandResource : IWlResource
             return;
         }
 
-        if (client.ResourcePool.Count < PoolLimit)
+        if (!client.Closed && client.ResourcePool.Count < PoolLimit)
         {
+            _owner = null!;
             client.ResourcePool.Push(this);
         }
-        else if (_selfHandle.IsAllocated)
+        else
+        {
+            ReleaseHandle();
+        }
+    }
+
+    internal void ReleaseHandle()
+    {
+        _owner = null!;
+        if (_selfHandle.IsAllocated)
         {
             _selfHandle.Free();
         }

@@ -97,6 +97,21 @@ public abstract unsafe class WlResource
         {
             Client.Display?.CaptureDispatchException(ex);
         }
+        finally
+        {
+            // A dead resource that something still references must not keep
+            // its handler or its destroy subscribers, and the graphs behind them.
+            Destroyed = null;
+            ReleaseHandler();
+        }
+    }
+
+    /// <summary>
+    /// Drops the request handler of a generated resource once the resource is
+    /// destroyed. Generated classes with requests override it.
+    /// </summary>
+    protected virtual void ReleaseHandler()
+    {
     }
 
     /// <summary>

@@ -814,11 +814,28 @@ namespace WaylandSharpest.Generator
             w.Line($"[{Runtime}.WaylandResource(\"{iface.Name}\")]");
             w.Open($"public sealed partial class {cls} : {ResourceBase}");
 
+            var handlerType = "I" + proxyCls + "Handler";
+            var hasRequests = iface.Requests.Count > 0;
+
             w.Doc("Creates the resource for a bound global or a client-requested object id.");
             w.Line($"public {cls}({ClientType} client, uint version, uint id) : base(client, {proxyCls}.Interface, version, id)");
             w.Line("{");
             w.Line("}");
             w.Line();
+            if (hasRequests)
+            {
+                w.Doc($"Creates the resource with a handler that receives every request. The request events are not raised for a resource that has a handler.");
+                w.Line($"public {cls}({ClientType} client, uint version, uint id, {handlerType} handler) : base(client, {proxyCls}.Interface, version, id)");
+                w.Line("{");
+                w.Line("    _handler = handler ?? throw new global::System.ArgumentNullException(nameof(handler));");
+                w.Line("}");
+                w.Line();
+                w.Line($"private {handlerType}? _handler;");
+                w.Line();
+                w.Line("protected override void ReleaseHandler() => _handler = null;");
+                w.Line();
+            }
+
             w.Line($"protected override {SpecType} Spec => {proxyCls}.Interface;");
 
             var used = new HashSet<string>(StringComparer.Ordinal)
@@ -830,12 +847,21 @@ namespace WaylandSharpest.Generator
 
             // Client requests become C# events.
             var requestNames = new Dictionary<MessageModel, string>();
+            var requestPlans = new Dictionary<MessageModel, EventPlan>();
+            var handlerNames = new Dictionary<MessageModel, string>();
+            var interfaceUsed = new HashSet<string>(StringComparer.Ordinal) { handlerType };
+            foreach (var request in iface.Requests)
+            {
+                handlerNames[request] = AdjustName(NameUtils.Pascal(request.Name), interfaceUsed, "Request");
+            }
+
             foreach (var request in iface.Requests)
             {
                 w.Line();
                 var evtName = AdjustName(NameUtils.Pascal(request.Name), used, "Request");
                 requestNames[request] = evtName;
                 var plan = BuildEventPlan(iface, request, clsFqn, forProxy: false);
+                requestPlans[request] = plan;
                 EmitEventArgsStruct(w, evtName + "EventArgs", request, plan);
                 w.Line();
                 var doc = WithSince(request.Summary ?? $"Raised when the client sends the '{request.Name}' request.", request.Since);
@@ -845,7 +871,15 @@ namespace WaylandSharpest.Generator
                 }
 
                 w.Doc(doc, request.Description);
-                EmitDeprecation(w, request);
+                if (request.DeprecatedSince is null)
+                {
+                    w.Line($"[global::System.Obsolete(\"Pass an {handlerType} to the constructor. Request events are being removed.\")]");
+                }
+                else
+                {
+                    EmitDeprecation(w, request);
+                }
+
                 w.Line($"public event global::System.EventHandler<{evtName}EventArgs>? {evtName};");
             }
 
@@ -868,10 +902,11 @@ namespace WaylandSharpest.Generator
             }
 
             w.Line();
-            OpenDeprecationSuppression(w, iface.Requests);
+            w.Line("#pragma warning disable CS0618");
             w.Open($"protected override void HandleRequest(uint opcode, {ArgSpan} args)");
             if (iface.Requests.Count > 0)
             {
+                w.Line("var handler = _handler;");
                 w.Open("switch (opcode)");
                 foreach (var request in iface.Requests)
                 {
@@ -879,7 +914,17 @@ namespace WaylandSharpest.Generator
                     var plan = BuildEventPlan(iface, request, clsFqn, forProxy: false);
                     w.Line($"case {request.Opcode}u:");
                     var invokeArgs = string.Join(", ", plan.DecodeExprs);
-                    w.Line($"    {evtName}?.Invoke(this, new {evtName}EventArgs({invokeArgs}));");
+                    var handlerCall = plan.Props.Count == 0
+                        ? $"handler.{handlerNames[request]}(this)"
+                        : $"handler.{handlerNames[request]}(this, new {evtName}EventArgs({invokeArgs}))";
+                    w.Line($"    if (handler is not null)");
+                    w.Line($"    {{");
+                    w.Line($"        {handlerCall};");
+                    w.Line($"    }}");
+                    w.Line($"    else");
+                    w.Line($"    {{");
+                    w.Line($"        {evtName}?.Invoke(this, new {evtName}EventArgs({invokeArgs}));");
+                    w.Line($"    }}");
                     if (request.IsDestructor)
                     {
                         w.Line("    CompleteDestructorRequest();");
@@ -892,7 +937,41 @@ namespace WaylandSharpest.Generator
             }
 
             w.Close();
-            CloseDeprecationSuppression(w, iface.Requests);
+            w.Line("#pragma warning restore CS0618");
+            w.Close();
+
+            if (!hasRequests)
+            {
+                return;
+            }
+
+            w.Line();
+            w.Doc($"Receives every request of a '{iface.Name}' resource. Pass it to the {cls} constructor, so that a request cannot go unhandled.");
+            w.Open($"public interface {handlerType}");
+            var first = true;
+            foreach (var request in iface.Requests)
+            {
+                if (!first)
+                {
+                    w.Line();
+                }
+
+                first = false;
+                var evtName = requestNames[request];
+                var methodName = handlerNames[request];
+                var plan = requestPlans[request];
+                var doc = WithSince(request.Summary ?? $"Handles the '{request.Name}' request.", request.Since);
+                if (request.IsDestructor)
+                {
+                    doc += " The resource is destroyed automatically after this call.";
+                }
+
+                w.Doc(doc, request.Description);
+                w.Line(plan.Props.Count == 0
+                    ? $"void {methodName}({cls} resource);"
+                    : $"void {methodName}({cls} resource, in {cls}.{evtName}EventArgs args);");
+            }
+
             w.Close();
         }
 

@@ -15,6 +15,19 @@ namespace WaylandSharpest.Tests;
 [LibWaylandOnly("WlForeignResource reads a libwayland wl_resource through its handle, and a managed display's handles do not name one.")]
 public sealed class ForeignResourceTests : LoopbackHarness
 {
+    [Fact]
+    public void A_throwing_destroy_callback_surfaces_from_dispatch()
+    {
+        var callback = new WlCallbackResource(ServerClient, 1, 0);
+        using var listener = WlForeignResource.AddDestroyListener(
+            callback.RawHandle, () => throw new InvalidOperationException("callback threw"));
+
+        callback.Destroy();
+
+        var thrown = Assert.Throws<WaylandException>(() => Server.EventLoop.Dispatch(0));
+        Assert.Equal("callback threw", thrown.InnerException?.Message);
+    }
+
     private WlCompositor BindCompositor(WlGlobal global) => Bind<WlCompositor>("wl_compositor", 6);
 
     [Fact]

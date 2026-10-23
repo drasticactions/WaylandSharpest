@@ -226,6 +226,16 @@ namespace WaylandProtocols
         {
         }
 
+        /// <summary>Creates the resource with a handler that receives every request. The request events are not raised for a resource that has a handler.</summary>
+        public SampleThingResource(global::Wayland.Server.WlClient client, uint version, uint id, ISampleThingHandler handler) : base(client, SampleThing.Interface, version, id)
+        {
+            _handler = handler ?? throw new global::System.ArgumentNullException(nameof(handler));
+        }
+
+        private ISampleThingHandler? _handler;
+
+        protected override void ReleaseHandler() => _handler = null;
+
         protected override global::Wayland.WlInterfaceSpec Spec => SampleThing.Interface;
 
         /// <summary>Arguments of the 'set_mode' event.</summary>
@@ -345,31 +355,99 @@ namespace WaylandProtocols
         #pragma warning disable CS0618
         protected override void HandleRequest(uint opcode, global::System.ReadOnlySpan<global::Wayland.WlArg> args)
         {
+            var handler = _handler;
             switch (opcode)
             {
                 case 0u:
-                    SetMode?.Invoke(this, new SetModeEventArgs((global::WaylandProtocols.SampleThing.Mode)args[0].U));
+                    if (handler is not null)
+                    {
+                        handler.SetMode(this, new SetModeEventArgs((global::WaylandProtocols.SampleThing.Mode)args[0].U));
+                    }
+                    else
+                    {
+                        SetMode?.Invoke(this, new SetModeEventArgs((global::WaylandProtocols.SampleThing.Mode)args[0].U));
+                    }
                     break;
                 case 1u:
-                    MakeChild?.Invoke(this, new MakeChildEventArgs(args[0].U, GetString(args[1])));
+                    if (handler is not null)
+                    {
+                        handler.MakeChild(this, new MakeChildEventArgs(args[0].U, GetString(args[1])));
+                    }
+                    else
+                    {
+                        MakeChild?.Invoke(this, new MakeChildEventArgs(args[0].U, GetString(args[1])));
+                    }
                     break;
                 case 2u:
-                    GiveData?.Invoke(this, new GiveDataEventArgs(GetArray(args[0]), args[1].Fd));
+                    if (handler is not null)
+                    {
+                        handler.GiveData(this, new GiveDataEventArgs(GetArray(args[0]), args[1].Fd));
+                    }
+                    else
+                    {
+                        GiveData?.Invoke(this, new GiveDataEventArgs(GetArray(args[0]), args[1].Fd));
+                    }
                     break;
                 case 3u:
-                    SetLabel?.Invoke(this, new SetLabelEventArgs(GetString(args[0])!));
+                    if (handler is not null)
+                    {
+                        handler.SetLabel(this, new SetLabelEventArgs(GetString(args[0])!));
+                    }
+                    else
+                    {
+                        SetLabel?.Invoke(this, new SetLabelEventArgs(GetString(args[0])!));
+                    }
                     break;
                 case 4u:
-                    Convert?.Invoke(this, new ConvertEventArgs(args[0].U));
+                    if (handler is not null)
+                    {
+                        handler.Convert(this, new ConvertEventArgs(args[0].U));
+                    }
+                    else
+                    {
+                        Convert?.Invoke(this, new ConvertEventArgs(args[0].U));
+                    }
                     CompleteDestructorRequest();
                     break;
                 case 5u:
-                    DestroyRequest?.Invoke(this, new DestroyRequestEventArgs());
+                    if (handler is not null)
+                    {
+                        handler.Destroy(this);
+                    }
+                    else
+                    {
+                        DestroyRequest?.Invoke(this, new DestroyRequestEventArgs());
+                    }
                     CompleteDestructorRequest();
                     break;
             }
         }
         #pragma warning restore CS0618
+    }
+
+    /// <summary>Receives every request of a 'sample_thing' resource. Pass it to the SampleThingResource constructor, so that a request cannot go unhandled.</summary>
+    public interface ISampleThingHandler
+    {
+        /// <summary>Handles the 'set_mode' request.</summary>
+        void SetMode(SampleThingResource resource, in SampleThingResource.SetModeEventArgs args);
+
+        /// <summary>Handles the 'make_child' request.</summary>
+        void MakeChild(SampleThingResource resource, in SampleThingResource.MakeChildEventArgs args);
+
+        /// <summary>Handles the 'give_data' request.</summary>
+        void GiveData(SampleThingResource resource, in SampleThingResource.GiveDataEventArgs args);
+
+        /// <summary>renames the thing. Available since version 2.</summary>
+        /// <remarks>
+        /// Superseded by set_mode; kept for older clients.
+        /// </remarks>
+        void SetLabel(SampleThingResource resource, in SampleThingResource.SetLabelEventArgs args);
+
+        /// <summary>Handles the 'convert' request. The resource is destroyed automatically after this call.</summary>
+        void Convert(SampleThingResource resource, in SampleThingResource.ConvertEventArgs args);
+
+        /// <summary>Handles the 'destroy' request. The resource is destroyed automatically after this call.</summary>
+        void Destroy(SampleThingResource resource);
     }
 
     /// <summary>Client proxy for the 'sample_child' interface.</summary>
@@ -416,6 +494,16 @@ namespace WaylandProtocols
         {
         }
 
+        /// <summary>Creates the resource with a handler that receives every request. The request events are not raised for a resource that has a handler.</summary>
+        public SampleChildResource(global::Wayland.Server.WlClient client, uint version, uint id, ISampleChildHandler handler) : base(client, SampleChild.Interface, version, id)
+        {
+            _handler = handler ?? throw new global::System.ArgumentNullException(nameof(handler));
+        }
+
+        private ISampleChildHandler? _handler;
+
+        protected override void ReleaseHandler() => _handler = null;
+
         protected override global::Wayland.WlInterfaceSpec Spec => SampleChild.Interface;
 
         /// <summary>Arguments of the 'destroy' event.</summary>
@@ -428,14 +516,29 @@ namespace WaylandProtocols
 
         protected override void HandleRequest(uint opcode, global::System.ReadOnlySpan<global::Wayland.WlArg> args)
         {
+            var handler = _handler;
             switch (opcode)
             {
                 case 0u:
-                    DestroyRequest?.Invoke(this, new DestroyRequestEventArgs());
+                    if (handler is not null)
+                    {
+                        handler.Destroy(this);
+                    }
+                    else
+                    {
+                        DestroyRequest?.Invoke(this, new DestroyRequestEventArgs());
+                    }
                     CompleteDestructorRequest();
                     break;
             }
         }
+    }
+
+    /// <summary>Receives every request of a 'sample_child' resource. Pass it to the SampleChildResource constructor, so that a request cannot go unhandled.</summary>
+    public interface ISampleChildHandler
+    {
+        /// <summary>Handles the 'destroy' request. The resource is destroyed automatically after this call.</summary>
+        void Destroy(SampleChildResource resource);
     }
 
 }

@@ -7,6 +7,17 @@ namespace WaylandSharpest.Tests;
 [LibWaylandOnly("It asserts that libwayland transport objects are recycled, which is a property of that transport and not of the protocol.")]
 public sealed class ResourceAllocationTests : LoopbackHarness
 {
+    [Fact]
+    public void A_throwing_client_destroyed_handler_surfaces_from_dispatch()
+    {
+        ServerClient.Destroyed += () => throw new InvalidOperationException("handler threw");
+
+        ServerClient.Destroy();
+
+        var thrown = Assert.Throws<WaylandException>(() => Server.EventLoop.Dispatch(0));
+        Assert.Equal("handler threw", thrown.InnerException?.Message);
+    }
+
     private const int Rounds = 200;
 
     private const long BytesPerHundredCallbacks = 4800;
@@ -26,6 +37,34 @@ public sealed class ResourceAllocationTests : LoopbackHarness
         var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
         Assert.Equal(BytesPerHundredCallbacks, allocated * 100 / Rounds);
+    }
+
+    [Fact]
+    public void A_destroyed_client_keeps_no_pooled_transport_objects()
+    {
+        var client = ServerClient;
+        var transport = Assert.IsType<LibWaylandClient>(client.Impl);
+        var callbacks = new WlCallbackResource[8];
+        for (var i = 0; i < callbacks.Length; i++)
+        {
+            callbacks[i] = new WlCallbackResource(client, 1, 0);
+        }
+
+        foreach (var callback in callbacks)
+        {
+            callback.Destroy();
+        }
+
+        Assert.Equal(8, transport.ResourcePool.Count);
+        for (var i = 0; i < 4; i++)
+        {
+            _ = new WlCallbackResource(client, 1, 0);
+        }
+
+        client.Destroy();
+
+        Assert.True(transport.Closed);
+        Assert.Equal(0, transport.ResourcePool.Count);
     }
 
     [Fact]

@@ -207,7 +207,17 @@ public sealed unsafe class WlForeignDestroyListener : IDisposable
         }
 
         var callback = registration?._callback;
+        var owner = LibWaylandDisplay.OwnerOf((wl_resource*)data);
         NativeListener.Free((NativeListener*)listener);
-        callback?.Invoke();
+        try
+        {
+            callback?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            // A throwing callback must not unwind into libwayland. With no live
+            // display to carry it, there is nowhere to rethrow, so it is dropped.
+            owner?.CaptureDispatchException(ex);
+        }
     }
 }
